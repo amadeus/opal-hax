@@ -130,6 +130,26 @@ __attribute__((constructor)) static void opalspy_init(void) {
     NSString *hello = [NSString stringWithFormat:@"---- opalspy loaded into %@ (pid %d)\n", exe, getpid()];
     [gOut writeData:[hello dataUsingEncoding:NSUTF8StringEncoding]];
     if(!getenv("OPALSPY_NO_DEBOUNCE") && !customBuild) opal_debounce_install();
+    // Settings migration between the original app group and the custom build's group (different teams can't
+    // read each other's group containers, so the original app exports and the custom build imports).
+    {
+        NSString *exportPath = [@"~/Library/Logs/opal-watch/opal-settings-export.plist" stringByExpandingTildeInPath];
+        if(!customBuild) {
+            NSDictionary *d = [[[NSUserDefaults alloc] initWithSuiteName:@"group.97Z3HJWCRT.com.opalcamera.Opal"] dictionaryRepresentation];
+            NSMutableDictionary *oc = [NSMutableDictionary dictionary];
+            for(NSString *k in d) if([k hasPrefix:@"OC"]) oc[k] = d[k];
+            if(oc.count && [oc writeToFile:exportPath atomically:YES])
+                opalspy_log([NSString stringWithFormat:@"settings: exported %lu OC* keys for the custom build", (unsigned long)oc.count]);
+        } else {
+            NSUserDefaults *mine = [[NSUserDefaults alloc] initWithSuiteName:@"UHD99KF9X7.com.amadeus.oc.OpalShared"];
+            NSDictionary *exported = [NSDictionary dictionaryWithContentsOfFile:exportPath];
+            if(![mine objectForKey:@"OCAppLastVersion"] && exported.count) {
+                for(NSString *k in exported) [mine setObject:exported[k] forKey:k];
+                [mine synchronize];
+                opalspy_log([NSString stringWithFormat:@"settings: imported %lu OC* keys from the original app", (unsigned long)exported.count]);
+            }
+        }
+    }
     // Dump the app's settings (the app-group container is unreadable from outside; we're inside Opal).
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), gQ, ^{
         NSMutableString *out = [NSMutableString string];

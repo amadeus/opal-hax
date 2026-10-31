@@ -13,3 +13,4 @@
 # camera captures / scratch
 *.mp4
 .DS_Store
+/rollback/

@@ -124,6 +124,33 @@ It does not run:
 Working route: unmodified app + `opalspy.dylib` injected into the main app at launch (`tools/opal-launch`).
 Device-service-level features (camera log tap, idle telemetry) are therefore not available yet.
 
+## Custom build: Opal re-signed under the owner's team (the chosen route, `tools/custom-build/`)
+
+The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Development: Amadeus Demarzi
+(J972UZ26TC)", Xcode signed in). `build_custom_opal.py` turns the pristine `Opal Backup.app` into
+`build/Opal.app`:
+- same-length swaps everywhere: `com.opalcamera`→`com.amadeus.oc`, `97Z3HJWCRT`→`UHD99KF9X7`,
+  `group.97Z3HJWCRT.com.opalcamera.Opal`→`UHD99KF9X7.com.amadeus.oc.OpalShared` (team-prefixed: no profile),
+  update host → `xxx….invalid`; renamed files; old ids fully gone (asserted).
+- built in: `opalcore.dylib` (camera-driver service: debounce at source, camera log tap, 30 s chip temp)
+  and `opalspy.dylib` (main app: telemetry, **launchquiet** = no automatic popover/stream on launch,
+  settings import from `~/Library/Logs/opal-watch/opal-settings-export.plist`, exported by opalspy
+  running in the original app — 43 OC* keys exported 2026-10-31).
+- entitlements = originals minus team-restricted keys; only the Setup app ("Opal Camera Setup.app",
+  `com.amadeus.oc.OpalExtensionInstaller`, hosts the camera system extension) needs a provisioning
+  profile for `system-extension.install`: `get-profile.sh` (CHANGES THE DEV ACCOUNT — ask first) uses a
+  throwaway Xcode project + `xcodebuild -allowProvisioningUpdates` (with `DEVELOPER_DIR`, since
+  xcode-select points at CLT) and writes `build/Setup.provisionprofile`; then rebuild with `--profile`.
+- Verified so far: deep signature OK; the custom main app runs (no AppleSystemPolicy kill), imported
+  settings, launchquiet works. Not yet verified: shim daemon, new extension, opalcore inside the device
+  service — the app waits for the shim (`installShim error shimNotReachable`) before starting the camera,
+  so these need the real install.
+- `install-custom-opal.sh` (owner runs it; sudo): moves /Applications/Opal.app + all com.opalcamera.*
+  launchd plists to `rollback/<ts>/`, installs build, adds `com.amadeus.oc.cameraExtensionShim` daemon and
+  a USB agent matching PIDs f63b+f63d. `rollback-custom-opal.sh` reverses it.
+- The original Setup app can deactivate its extension (`deactivationRequestForExtension`, "Setup
+  uninstall requested") — trigger not yet identified; otherwise macOS drops it once its app is gone.
+
 ## Auto-launch with recorder (`tools/opal-launch/`)
 
 `opal-launch` (launchd job `local.opal-launch`) starts Opal with `DYLD_INSERT_LIBRARIES=tools/opalspy/opalspy.dylib`

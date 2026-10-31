@@ -4,7 +4,8 @@
 Writes ~/Library/Logs/opal-watch/YYYY-MM-DD.log containing:
   * LOG   lines: macOS unified-log events for the camera (kernel USB attach/detach of 03e7 devices,
                  the CalDigit dock), the Opal app / device service / video service / camera extension
-                 (subsystem com.opalcamera.*, debug level), and UVCAssistant mentions of Opal.
+                 (subsystem com.opalcamera.* or, for the custom build, com.amadeus.oc.*; debug level),
+                 and UVCAssistant mentions of Opal.
   * USB   lines: snapshot of every Movidius (VID 0x03e7) USB device: PID, name, speed. Written when it
                  changes, and as a heartbeat every 30 minutes.
   * PROC  lines: which Opal processes are running (on change).
@@ -28,7 +29,7 @@ PREDICATE = (
     '(process == "kernel" AND (eventMessage CONTAINS "0x03e7" OR eventMessage CONTAINS "Opal C1"'
     ' OR eventMessage CONTAINS "Luxonis" OR eventMessage CONTAINS "VSC Loopback"'
     ' OR eventMessage CONTAINS "Movidius" OR eventMessage CONTAINS "TS5 Plus"))'
-    ' OR (subsystem BEGINSWITH "com.opalcamera")'
+    ' OR (subsystem BEGINSWITH "com.opalcamera") OR (subsystem BEGINSWITH "com.amadeus.oc")'
     ' OR (process == "UVCAssistant" AND eventMessage CONTAINS "Opal")'
 )
 
