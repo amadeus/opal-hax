@@ -87,9 +87,36 @@ static void hookLogFeed(void) {
     free(classes);
 }
 
+void opal_launchquiet_install(void);
+
+void opalspy_log(NSString *msg) {
+    static dispatch_queue_t q;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ q = dispatch_queue_create("opalspy.log", DISPATCH_QUEUE_SERIAL); });
+    NSDate *now = NSDate.date;
+    dispatch_async(q, ^{
+        NSDateFormatter *f = [NSDateFormatter new];
+        f.dateFormat = @"yyyy-MM-dd HH:mm:ss.SSS";
+        NSString *line = [NSString stringWithFormat:@"%@ %@\n", [f stringFromDate:now], msg];
+        NSString *path = [@"~/Library/Logs/opal-watch/opalspy.log" stringByExpandingTildeInPath];
+        NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:path];
+        if(!h) { [line writeToFile:path atomically:NO encoding:NSUTF8StringEncoding error:nil]; return; }
+        [h seekToEndOfFile];
+        [h writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+        [h closeFile];
+    });
+}
+
 __attribute__((constructor)) static void opalspy_init(void) {
     NSString *exe = NSProcessInfo.processInfo.arguments.firstObject.lastPathComponent;
     if(![exe isEqualToString:@"Opal"]) return;
+    [NSFileManager.defaultManager createDirectoryAtPath:[@"~/Library/Logs/opal-watch" stringByExpandingTildeInPath]
+                            withIntermediateDirectories:YES attributes:nil error:nil];
+    opal_launchquiet_install();
+    // In the custom build (bundle id com.amadeus.oc.*) the camera-driver service runs opalcore, which debounces
+    // at the source; don't stack a second delay here.
+    BOOL customBuild = [NSBundle.mainBundle.bundleIdentifier hasPrefix:@"com.amadeus.oc"];
+    opalspy_log([NSString stringWithFormat:@"opalspy loaded into %@ pid %d (custom build: %d)", NSBundle.mainBundle.bundleIdentifier, getpid(), customBuild]);
     NSString *dir = [@"~/Library/Logs/opal-watch" stringByExpandingTildeInPath];
     [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
     NSString *path = [dir stringByAppendingPathComponent:@"telemetry.log"];
@@ -102,11 +129,11 @@ __attribute__((constructor)) static void opalspy_init(void) {
     gOrigSetStringValue = method_setImplementation(m, (IMP)spy_setStringValue);
     NSString *hello = [NSString stringWithFormat:@"---- opalspy loaded into %@ (pid %d)\n", exe, getpid()];
     [gOut writeData:[hello dataUsingEncoding:NSUTF8StringEncoding]];
-    if(!getenv("OPALSPY_NO_DEBOUNCE")) opal_debounce_install();
+    if(!getenv("OPALSPY_NO_DEBOUNCE") && !customBuild) opal_debounce_install();
     // Dump the app's settings (the app-group container is unreadable from outside; we're inside Opal).
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), gQ, ^{
         NSMutableString *out = [NSMutableString string];
-        for(NSString *suite in @[ @"group.97Z3HJWCRT.com.opalcamera.Opal", @"97Z3HJWCRT.com.opalcamera.v2.Opal" ]) {
+        for(NSString *suite in @[ @"group.97Z3HJWCRT.com.opalcamera.Opal", @"97Z3HJWCRT.com.opalcamera.v2.Opal", @"UHD99KF9X7.com.amadeus.oc.OpalShared" ]) {
             NSDictionary *d = [[[NSUserDefaults alloc] initWithSuiteName:suite] dictionaryRepresentation];
             [out appendFormat:@"==== suite %@\n", suite];
             for(NSString *k in [d.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
