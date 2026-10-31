@@ -1,0 +1,15 @@
+# Opal's original (proprietary) app bundles - pristine sources for builds, not versioned
+/Opal.app/
+/Opal Backup.app/
+/Opal Patched*.app/
+# build outputs
+/build/
+/tools/bin/
+/tools/vendor/
+*.dylib
+*.o
+/tools/opal-launch/opal-launch
+/tools/opalspy/cmio_inuse
+# camera captures / scratch
+*.mp4
+.DS_Store

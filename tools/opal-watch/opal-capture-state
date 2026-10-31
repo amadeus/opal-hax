@@ -1,0 +1,27 @@
+#!/bin/bash
+# opal-capture-state — run this BEFORE unplugging a stuck/hot Opal C1.
+# Freezes everything a replug would destroy into ~/Library/Logs/opal-watch/incident-<timestamp>/
+# Read-only: it does not touch or reset the camera.
+T="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$HOME/Library/Logs/opal-watch/incident-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$OUT"
+echo "capturing to $OUT ..."
+{
+  echo "captured: $(date)"; echo "uptime: $(uptime)"
+  echo "note: ${*:-<none>}"
+} > "$OUT/00-info.txt"
+"$T/opal-watch/opal-watch-report" 48 > "$OUT/01-report-48h.txt" 2>&1
+cp "$HOME"/Library/Logs/opal-watch/*.log "$OUT/" 2>/dev/null
+/usr/sbin/ioreg -p IOUSB -l -w0 > "$OUT/02-ioreg-usb.txt" 2>&1
+/usr/sbin/ioreg -p IOService -r -n "Opal C1" -l -w0 > "$OUT/03-ioreg-opal-interfaces.txt" 2>&1
+/usr/sbin/system_profiler SPCameraDataType > "$OUT/04-system-profiler.txt" 2>&1
+# passive depthai XLink search (lists devices + state; never connects or resets)
+[ -x "$T/bin/probe" ] && "$T/bin/probe" > "$OUT/05-depthai-probe.txt" 2>&1
+/bin/ps -axo pid,ppid,%cpu,rss,etime,comm | grep -iE "opal|cmio|UVCAssistant|VDCAssistant|usbaudiod" | grep -v grep > "$OUT/06-processes.txt"
+ls -la "$HOME"/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i opal | grep -vi opaltool > "$OUT/07-crash-reports.txt"
+for f in "$HOME"/Library/Logs/DiagnosticReports/*Opal*; do case "$(basename "$f")" in [Oo]paltool*) ;; *) cp "$f" "$OUT/" 2>/dev/null;; esac; done
+/usr/bin/log show --last 3h --style compact --predicate 'sender == "IOUSBHostFamily" OR sender == "IOThunderboltFamily" OR (process == "kernel" AND (eventMessage CONTAINS "0x03e7" OR eventMessage CONTAINS "Opal"))' > "$OUT/08-kernel-usb-3h.txt" 2>&1
+/usr/bin/log show --last 3h --info --debug --style compact --predicate 'subsystem BEGINSWITH "com.opalcamera"' > "$OUT/09-opal-unified-3h.txt" 2>&1
+/usr/bin/pmset -g log | tail -300 > "$OUT/10-pmset.txt" 2>&1
+echo "done. $(du -sh "$OUT" | cut -f1) in $OUT"
+echo "Now it's fine to unplug/replug. Then start a coding agent in ~/Developer/experiments/opal-camera, point it at AGENTS.md, and say the camera hung."

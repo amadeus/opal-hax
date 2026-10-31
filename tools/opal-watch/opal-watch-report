@@ -1,0 +1,13 @@
+#!/bin/bash
+# opal-watch-report [hours=24]  — condensed timeline of camera-relevant events from opal-watch logs.
+# Pass --all to print every recorded line instead of the condensed view.
+H=24; ALL=0
+for a in "$@"; do [ "$a" = "--all" ] && ALL=1 || H="$a"; done
+DIR="$HOME/Library/Logs/opal-watch"
+SINCE=$(date -v-"${H}"H "+%Y-%m-%d %H:%M:%S")
+files=$(ls "$DIR"/*.log 2>/dev/null | sort) || { echo "no logs in $DIR"; exit 1; }
+cat $files | awk -v since="$SINCE" '($1" "$2) >= since' | if [ $ALL = 1 ]; then cat; else
+  grep -E "^\S+ \S+ (USB|PROC|CRASH|META) |enumerated|terminateDevice|StreamingState|CamEx: (start|stop)Stream|search\]|No device available|cameraNotFound|UVC device reset|Flashing device|Started device|Beginning to stream|Closing device|Resetting device|Stopped capture|[Hh]eartbeat|Low FPS|Painful|ScreenLock|screen lock|detectedScreen|teardown|rror|xception|[Ff]atal|crash" \
+  | sed -E 's/\[com\.opalcamera\.[A-Za-z.]+:[A-Za-z]+\] //; s/\(IOUSBHostFamily\) //; s/AppleUSB(20|30)HubPort@[0-9a-f]+: AppleUSBHostPort::(enumerateDeviceComplete_block_invoke|terminateDevice): //' \
+  | cut -c1-220 | awk '{k=$0; sub(/^[^ ]+ [^ ]+ /,"",k); if(k!=prev){print; prev=k}}'
+fi
