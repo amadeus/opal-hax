@@ -88,6 +88,7 @@ static void hookLogFeed(void) {
 }
 
 void opal_launchquiet_install(void);
+void opal_noupdates_install(void);
 
 void opalspy_log(NSString *msg) {
     static dispatch_queue_t q;
@@ -117,6 +118,7 @@ __attribute__((constructor)) static void opalspy_init(void) {
     // at the source; don't stack a second delay here.
     BOOL customBuild = [NSBundle.mainBundle.bundleIdentifier hasPrefix:@"com.amadeus.oc"];
     opalspy_log([NSString stringWithFormat:@"opalspy loaded into %@ pid %d (custom build: %d)", NSBundle.mainBundle.bundleIdentifier, getpid(), customBuild]);
+    if(customBuild) opal_noupdates_install();
     NSString *dir = [@"~/Library/Logs/opal-watch" stringByExpandingTildeInPath];
     [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
     NSString *path = [dir stringByAppendingPathComponent:@"telemetry.log"];

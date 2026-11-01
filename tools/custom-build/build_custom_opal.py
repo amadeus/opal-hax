@@ -15,6 +15,9 @@ Steps
       opalcamera.sfo3.digitaloceanspaces.com -> xxx….invalid                        (auto-updater can't replace our build)
       o815788.ingest.sentry.io / api.mixpanel.com -> xxx….invalid                   (no crash reports / analytics)
  4. rename files/dirs whose names contain com.opalcamera
+ 4b. no updating: main executable thinned to arm64 and its update/firmware-flash entry points patched to return
+     (CODE_PATCHES, original bytes verified first); the updater XPC service is removed. The Updates settings
+     panel is hidden at runtime by opalspy (tools/opalspy/noupdates.m).
  5. build our code in: opalcore.dylib -> camera-driver XPC service, opalspy.dylib -> main app (LC_LOAD_DYLIB)
  6. entitlements per component = originals with the same replacements, minus team-restricted keys
     (application-identifier, team-identifier, associated-domains). The Setup app (system-extension host) keeps
@@ -24,6 +27,8 @@ Steps
 import argparse
 import os
 import plistlib
+import re
+import struct
 import shutil
 import subprocess
 import sys
@@ -48,6 +53,30 @@ REPLACEMENTS = [
 TRACKERS = [b"ingest.sentry.io", b"api.mixpanel.com"]
 for a, b in REPLACEMENTS:
     assert len(a) == len(b), (a, b)
+
+# Updating is removed: the app is ours now. Each entry: (VA in Opal 0.26 arm64, expected original bytes, new bytes,
+# what). RET = `ret`; RET0 = `mov x0, #0; ret`. All are void functions/methods (or BOOL for RET0) whose callers
+# ignore the result, so returning on entry is clean.
+RET, RET0 = bytes.fromhex("c0035fd6"), bytes.fromhex("000080d2c0035fd6")
+CODE_PATCHES = [
+    (0x10024fb44, "fc6fbda9f44f01a9", RET, "UpdateManager.scheduleCheckForUpdate()"),
+    (0x100252478, "fc6fbda9f44f01a9", RET, "UpdateManager.checkForUpdate()"),
+    (0x100254db8, "fc6fbda9f44f01a9", RET, "UpdateManager.downloadUpdate(...)"),
+    (0x100257bb0, "ff0307d1f44f1aa9", RET, "UpdateManager.launchUpdateInstallation (runs the .pkg via OpalCameraUpdateXPC)"),
+    (0x1003ab9a0, "f44fbea9fd7b01a9", RET, "FirmwareUpdateManager: 'New Firmware Update' prompt"),
+    (0x1003a8958, "f44fbea9fd7b01a9", RET, "FirmwareUpdateManager: flash closure"),
+    (0x1000143f4, "ffc301d1f65704a9", RET, "-[FirmwareManager flashBootloaderWithProgress:andCompletion:]"),
+    (0x10001493c, "ffc301d1f65704a9", RET, "-[FirmwareManager flashApplicationPipelineWithProgress:andCompletion:]"),
+    (0x10001541c, "f657bda9f44f01a9", RET0, "-[FirmwareManager updateCalibrationVersion] (writes EEPROM)"),
+    (0x1001c2640, "ff8301d1f44f04a9", RET, "-[DeveloperModeViewController forceFlashCamera:]"),
+]
+# Settings page content height (static Double used by SettingsView and TabManager's popover sizing). The four
+# remaining panels measure 444 pt (96+126+126+66 + 3x10 spacing); 547 included the Updates panel. The Quit footer
+# already starts ~10.7 pt below this area, so 444 leaves the same gap above Quit as between panel groups.
+DATA_PATCHES = [
+    (0x100573b50, 547.0, 444.0, "settings page height"),
+]
+TEXT_VMADDR = 0x100000000  # __TEXT vmaddr; fileoff 0 in the thin arm64 executable
 
 RESTRICTED = {"com.apple.application-identifier", "com.apple.developer.team-identifier",
               "com.apple.developer.associated-domains"}
@@ -151,6 +180,29 @@ def main():
     trackers = [p for p in walk_files(OUT) if any(t in open(p, "rb").read() for t in TRACKERS)]
     assert not trackers, f"tracker endpoints left in: {trackers}"
 
+    # 4b. no updating
+    exe = os.path.join(OUT, "Contents/MacOS/Opal")
+    run("lipo", exe, "-thin", "arm64", "-output", exe + ".arm64", quiet=True)
+    os.replace(exe + ".arm64", exe)
+    with open(exe, "r+b") as f:
+        for va, orig, new, what in CODE_PATCHES:
+            f.seek(va - TEXT_VMADDR)
+            cur = f.read(len(bytes.fromhex(orig)))
+            assert cur == bytes.fromhex(orig), f"unexpected code at {va:#x} ({what}): {cur.hex()}"
+            f.seek(va - TEXT_VMADDR)
+            f.write(new)
+        segs = re.findall(r"segname (\S+)\n\s+vmaddr (0x[0-9a-f]+)\n\s+vmsize (0x[0-9a-f]+)\n\s+fileoff (\d+)",
+                          run("otool", "-l", exe, quiet=True).stdout)
+        for va, orig, new, what in DATA_PATCHES:
+            seg = [(int(v, 16), int(o)) for n, v, sz, o in segs if int(v, 16) <= va < int(v, 16) + int(sz, 16)][0]
+            f.seek(va - seg[0] + seg[1])
+            cur = struct.unpack("<d", f.read(8))[0]
+            assert cur == orig, f"unexpected value at {va:#x} ({what}): {cur}"
+            f.seek(va - seg[0] + seg[1])
+            f.write(struct.pack("<d", new))
+    shutil.rmtree(os.path.join(OUT, "Contents/XPCServices/OpalCameraUpdateXPC.xpc"))
+    print(f"updating removed: {len(CODE_PATCHES)} code patches, OpalCameraUpdateXPC.xpc deleted")
+
     # 5. our code
     run(os.path.join(TOOLS, "opalcore", "build.sh"), quiet=True)
     run(os.path.join(TOOLS, "opalspy", "build.sh"), quiet=True)
@@ -180,7 +232,7 @@ def main():
         for f in files:
             if f.endswith(".dylib"):
                 sign(os.path.join(d, f))
-    for x in ["OpalCameraVideoService", "OpalCameraUpdateXPC", "OpalCameraDeviceService", "OpalCameraUninstallXPC"]:
+    for x in ["OpalCameraVideoService", "OpalCameraDeviceService", "OpalCameraUninstallXPC"]:
         rel = f"Contents/XPCServices/{x}.xpc"
         sign(os.path.join(OUT, rel), ent(rel))
     ext_rel_src = SETUP_REL + "/Contents/Library/SystemExtensions/com.opalcamera.OpalCamera.opalCameraExtension.systemextension"

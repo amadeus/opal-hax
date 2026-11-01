@@ -149,6 +149,18 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   and `opalspy.dylib` (main app: telemetry, **launchquiet** = no automatic popover/stream on launch,
   settings import from `~/Library/Logs/opal-watch/opal-settings-export.plist`, exported by opalspy
   running in the original app — 43 OC* keys exported 2026-10-31).
+- **No updating (2026-11-01, owner's request: "this is an app I control now")**: main executable thinned to arm64;
+  `CODE_PATCHES` make UpdateManager (schedule/check/download/launch-install), the FirmwareUpdateManager "New
+  Firmware Update" prompt + flash closure, `-[FirmwareManager flashBootloader…/flashApplicationPipeline…/
+  updateCalibrationVersion]` and dev-mode `forceFlashCamera:` return on entry (original bytes asserted), so the app
+  can never re-flash the camera (only the main app links depthai's flash APIs; the device service's "Flashing
+  device" log is just the RAM boot). `OpalCameraUpdateXPC.xpc` (pkg installer) deleted. The Updates settings panel
+  (version, git hash, auto-install toggle, changelog) is hidden at runtime by `tools/opalspy/noupdates.m`: it points
+  UpdatesPanelView's SwiftUI `View` witness table at EmptyView (Body type, Body:View conformance, no-op body getter);
+  log line "noupdates: Updates settings panel hidden" in opalspy.log. `DATA_PATCHES` shrinks the Settings page
+  height constant 547 → 444 pt (the 4 remaining panels; gap above Quit then equals the 10 pt between groups).
+  Kept: camera-extension "update" logic (CamEx requiresUpdate) — that re-activates our own extension, it's not
+  app updating. `update-custom-opal.sh` now keeps the replaced build in `previous-custom/<ts>/`.
 - entitlements = originals minus team-restricted keys; only the Setup app ("Opal Camera Setup.app",
   `com.amadeus.oc.OpalExtensionInstaller`, hosts the camera system extension) needs a provisioning
   profile for `system-extension.install`: `get-profile.sh` (CHANGES THE DEV ACCOUNT — ask first) uses a
