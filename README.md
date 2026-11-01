@@ -5,18 +5,30 @@ problems that will never be fixed upstream. This repo has the reverse-engineerin
 scripts that turn Opal's last Mac app (v0.26, build 25.992) into a custom build under my own Apple developer
 account, plus newer camera firmware.
 
+## The point
+
+1. **The sensor stays off when nothing is using the camera.** Stock, the sensor keeps running whenever the
+   camera is plugged in without the app, or whenever the app's popover is open, so the camera just sits there
+   getting hot. The new firmware turns the sensor off 3 s after the last app stops using the camera. The custom
+   app stops the stream reliably and without flapping. Over long sessions the stock camera would get hot and
+   "get stuck": it dropped out as a camera and only unplugging helped.
+2. **Built-in logging to debug future issues.** The app records:
+   - the camera's own logs
+   - chip temperature, CPU load, and memory
+   - every stream on/off decision
+
+   It writes them to `~/Library/Logs/opal-watch/`, so if the camera hangs again there's a record of what led up to
+   it.
+3. **Polish and UX tweaks to the app:**
+   - It no longer pops open (and starts the camera) on launch.
+   - All the built-in updating is gone. The app is abandoned, so the update checks were useless, and they could
+     re-flash the camera.
+   - The Noise Cancellation section is gone. It's a feature that never shipped in this version and just took up
+     space.
+   - The Sentry and Mixpanel trackers are blocked.
+
 Unofficial and unsupported. It works on my camera and my Macs. Flashing firmware can brick a camera, so use it at
 your own risk.
-
-## Why
-
-Over long sessions the Opal C1 gets hot and then "gets stuck": it drops out as a camera, the Opal menu-bar icon
-blinks while it searches, and only unplugging it helps. On top of that, the stock app:
-
-- keeps the camera sensor running whenever its popover is open, even with no app using the camera
-- flips the stream on and off rapidly when the popover opens and closes
-- phones home to Sentry (crash reports) and Mixpanel (analytics, including the camera serial)
-- checks for app and firmware updates that will never come, and can re-flash the camera
 
 ## What's in the custom build
 
