@@ -194,6 +194,8 @@ agent's permission policy blocks installing persistent launch items that inject 
   - `tools/opal-watch/opal-capture-state [note]` — freeze state into
     `~/Library/Logs/opal-watch/incident-<ts>/` (read-only; run BEFORE replugging).
   - Restart: `launchctl kickstart -k gui/$(id -u)/local.opal-watch`.
+  - `tools/opal-watch/stream-monitor.py [summary_secs]` — live watch for a test session (used for the overnight
+    soak): events + temp/load summaries, auto-captures incident state on crash signatures.
 - `tools/bin/probe` — passive depthai device list + state (safe while the app runs).
 - `tools/bin/opaltool` — `hostboot orig|idle <secs>` (RAM-only test w/ temps + camera logs),
   `flash orig|idle`, `blversion`, `blflash` (don't). `tools/bin/thermal A B C` — temp experiment.
