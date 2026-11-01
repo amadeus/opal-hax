@@ -38,6 +38,9 @@ TOOLS = os.path.join(ROOT, "tools")
 SRC = os.path.join(ROOT, "Opal Backup.app")
 OUT = os.path.join(ROOT, "build", "Opal.app")
 IDENTITY = "Apple Development: Amadeus Demarzi (J972UZ26TC)"
+# --developer-id: sign for distribution (any Mac, notarizable, secure timestamp so builds outlive the certificate)
+DEVID_IDENTITY = "Developer ID Application: Amadeus Demarzi (UHD99KF9X7)"
+TIMESTAMP = "--timestamp=none"
 TEAM_OLD, TEAM_NEW = b"97Z3HJWCRT", b"UHD99KF9X7"
 
 REPLACEMENTS = [
@@ -76,7 +79,10 @@ CODE_PATCHES = [
 DATA_PATCHES = [
     (0x100573b50, 547.0, 444.0, "settings page height"),
 ]
-TEXT_VMADDR = 0x100000000  # __TEXT vmaddr; fileoff 0 in the thin arm64 executable
+TEXT_VMADDR = 0x100000000
+# Camera extension build number. macOS only replaces an installed system extension when its version changes, so
+# bump this whenever the extension's signature must be refreshed (e.g. 11: Developer ID re-sign, 2026-11-01).
+EXT_BUNDLE_VERSION = "11"  # __TEXT vmaddr; fileoff 0 in the thin arm64 executable
 
 RESTRICTED = {"com.apple.application-identifier", "com.apple.developer.team-identifier",
               "com.apple.developer.associated-domains"}
@@ -120,8 +126,8 @@ def original_entitlements(rel_bundle):
     return plistlib.loads(data)
 
 
-def sign(path, entitlements=None, ident=IDENTITY):
-    cmd = ["codesign", "--force", "--sign", ident, "--options", "runtime", "--timestamp=none"]
+def sign(path, entitlements=None):
+    cmd = ["codesign", "--force", "--sign", IDENTITY, "--options", "runtime", TIMESTAMP]
     if entitlements:
         ep = path.rstrip("/") + ".entitlements.plist"
         ep = os.path.join(ROOT, "build", os.path.basename(ep).replace(" ", "_"))
@@ -134,7 +140,12 @@ def sign(path, entitlements=None, ident=IDENTITY):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--profile", help="provisioning profile for com.amadeus.oc.OpalExtensionInstaller (System Extension)")
+    ap.add_argument("--developer-id", action="store_true",
+                    help=f"sign with '{DEVID_IDENTITY}' + secure timestamp (use a Developer ID profile with --profile)")
     args = ap.parse_args()
+    if args.developer_id:
+        global IDENTITY, TIMESTAMP
+        IDENTITY, TIMESTAMP = DEVID_IDENTITY, "--timestamp"
 
     # 1. fresh copy
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
@@ -202,6 +213,15 @@ def main():
             f.write(struct.pack("<d", new))
     shutil.rmtree(os.path.join(OUT, "Contents/XPCServices/OpalCameraUpdateXPC.xpc"))
     print(f"updating removed: {len(CODE_PATCHES)} code patches, OpalCameraUpdateXPC.xpc deleted")
+
+    ext_plist = os.path.join(OUT, SETUP_REL, "Contents/Library/SystemExtensions",
+                             "com.amadeus.oc.OpalCamera.opalCameraExtension.systemextension/Contents/Info.plist")
+    with open(ext_plist, "rb") as f:
+        info = plistlib.load(f)
+    info["CFBundleVersion"] = EXT_BUNDLE_VERSION
+    with open(ext_plist, "wb") as f:
+        plistlib.dump(info, f)
+    print("camera extension version", info["CFBundleShortVersionString"], "build", EXT_BUNDLE_VERSION)
 
     # 5. our code
     run(os.path.join(TOOLS, "opalcore", "build.sh"), quiet=True)

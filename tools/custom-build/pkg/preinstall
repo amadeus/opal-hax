@@ -1,0 +1,63 @@
+#!/bin/bash
+# Opal (custom build) package — preinstall, runs as root before /Applications/Opal.app is laid down.
+# Removes every trace of the original Opal (Opal Camera Inc, team 97Z3HJWCRT) and stops a previous custom build.
+# Log: /var/log/opal-custom-install.log
+exec >>/var/log/opal-custom-install.log 2>&1
+echo "== preinstall $(date)"
+SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+USER_NAME=$(stat -f %Su /dev/console)
+USER_ID=$(id -u "$USER_NAME")
+USER_HOME=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | awk '{print $2}')
+asuser() { launchctl asuser "$USER_ID" sudo -u "$USER_NAME" "$@"; }
+
+# 1. stop Opal (original or custom) and its setup helper
+pkill -TERM -x Opal; pkill -TERM -f "Opal Camera Setup.app/Contents/MacOS"
+for i in $(seq 20); do pgrep -x Opal >/dev/null || break; sleep 0.5; done
+pkill -KILL -x Opal
+
+# 2. launchd items: the original's are removed, ours are stopped (postinstall rewrites them)
+for f in /Library/LaunchAgents/com.opalcamera.*.plist /Library/LaunchAgents/com.amadeus.oc.*.plist; do
+  [ -e "$f" ] || continue
+  launchctl bootout "gui/$USER_ID" "$f" 2>/dev/null
+  case "$f" in */com.opalcamera.*) rm -f "$f"; echo "removed $f";; esac
+done
+for f in /Library/LaunchDaemons/com.opalcamera.*.plist /Library/LaunchDaemons/com.amadeus.oc.*.plist; do
+  [ -e "$f" ] || continue
+  launchctl bootout system "$f" 2>/dev/null
+  case "$f" in */com.opalcamera.*) rm -f "$f"; echo "removed $f";; esac
+done
+rm -rf /Library/PrivilegedHelperTools/com.opalcamera.*
+# legacy (pre-system-extension) virtual camera plugin of the original app
+DAL=/Library/CoreMediaIO/Plug-Ins/DAL/OpalVirtualCamera.plugin
+if [ -d "$DAL" ] && codesign -dv "$DAL" 2>&1 | grep -q "Identifier=com.opalcamera"; then rm -rf "$DAL"; echo "removed $DAL"; fi
+
+# 3. the original app
+APP=/Applications/Opal.app
+if [ -d "$APP" ] && [ "$(defaults read "$APP/Contents/Info.plist" CFBundleIdentifier 2>/dev/null)" = com.opalcamera.OpalCamera ]; then
+  # keep its settings for the custom build (imported by opalspy on the custom build's first launch)
+  EXPORT="$USER_HOME/Library/Logs/opal-watch/opal-settings-export.plist"
+  TMP=$(mktemp)
+  asuser defaults export group.97Z3HJWCRT.com.opalcamera.Opal - > "$TMP" 2>/dev/null
+  asuser mkdir -p "$USER_HOME/Library/Logs/opal-watch"
+  RES=$(osascript -l JavaScript "$SCRIPTS/export-oc-settings.js" "$TMP" "$EXPORT")
+  chown "$USER_NAME" "$EXPORT" 2>/dev/null
+  rm -f "$TMP"
+  echo "original settings: $RES"
+  # remove its camera extension with its own uninstall mode (env ForceUninstall; must run from /Applications)
+  TEMP_APP="/Applications/Opal Original (removing).app"
+  rm -rf "$TEMP_APP"; mv "$APP" "$TEMP_APP"
+  if systemextensionsctl list 2>/dev/null | grep -q "97Z3HJWCRT.*activated"; then
+    asuser open -n --env ForceUninstall=1 "$TEMP_APP/Contents/MacOS/Opal Camera Setup.app"
+    for i in $(seq 30); do systemextensionsctl list 2>/dev/null | grep -q "97Z3HJWCRT.*activated" || break; sleep 1; done
+    pkill -TERM -f "Opal Original (removing).app"
+    echo "original extension: $(systemextensionsctl list 2>/dev/null | grep 97Z3HJWCRT | sed 's/.*\[/[/')"
+  fi
+  # to the user's Trash (recoverable), not deleted
+  DEST="$USER_HOME/.Trash/Opal (original $(date +%Y%m%d-%H%M%S)).app"
+  mv "$TEMP_APP" "$DEST" && chown -R "$USER_NAME" "$DEST" && echo "original app moved to $DEST"
+  pkgutil --forget com.opalcamera.OpalCamera 2>/dev/null
+elif [ -d "$APP" ]; then
+  # previous custom build: remove it so no stale files survive inside the bundle
+  rm -rf "$APP"
+fi
+exit 0

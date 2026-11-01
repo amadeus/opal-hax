@@ -161,6 +161,27 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   height constant 547 → 444 pt (the 4 remaining panels; gap above Quit then equals the 10 pt between groups).
   Kept: camera-extension "update" logic (CamEx requiresUpdate) — that re-activates our own extension, it's not
   app updating. `update-custom-opal.sh` now keeps the replaced build in `previous-custom/<ts>/`.
+- **Release builds = Developer ID + notarized (2026-11-01)**, so they run on any Mac and outlive the certificate:
+  `build_custom_opal.py --developer-id --profile build/Setup-DeveloperID.provisionprofile` (identity "Developer ID
+  Application: Amadeus Demarzi (UHD99KF9X7)", secure timestamp; the Developer ID profile "Opal Setup Developer ID"
+  provisions all devices, expires 2044-10-27), then `notarize.sh` (notarytool keychain profile `opal-notary`,
+  staples, spctl check). The development identity/profile path still works without `--developer-id` (dev cert
+  expires 2027-05-09, dev profile only covers this Mac). `EXT_BUNDLE_VERSION` (now 11) sets the camera extension's
+  CFBundleVersion: macOS only replaces an installed system extension when that changes — bump it whenever the
+  extension must be re-signed. Opal's own Setup app declines replacement (OSSystemExtensionError 11) unless run with
+  env **`ForceReinstall=1`** (`open -n --env ForceReinstall=1 ".../Opal Camera Setup.app"`). After a replacement
+  the new extension does NOT start until a reboot (launchd "Submit job failed … Operation already in progress"
+  while the old one terminates); Opal shows "Restart to finish update" and the camera is unavailable until then.
+- **Installer package** for other Macs: `make-pkg.sh` → `build/Opal-<ver>-custom.<ts>.pkg` (Developer ID Installer
+  signed, notarized, stapled). `pkg/preinstall`: stops Opal; removes the original's launchd items, helper tools,
+  legacy DAL plugin `/Library/CoreMediaIO/Plug-Ins/DAL/OpalVirtualCamera.plugin`, receipt; exports the original's
+  OC* settings (`defaults export group.97Z3HJWCRT.com.opalcamera.Opal`, filtered by `pkg/export-oc-settings.js`)
+  for opalspy's first-launch import; removes the original extension via its ForceUninstall mode; moves the original
+  app to the user's Trash; deletes a previous custom app. `pkg/postinstall`: shim daemon + USB agent (f63b+f63d),
+  extension activate/replace via ForceReinstall when the bundled version isn't already active (opens Camera
+  Extensions settings if it's waiting for the user), launches Opal. No settings are shipped (owner's choice: a Mac
+  keeps its own Opal settings, else defaults). Log: `/var/log/opal-custom-install.log`. Tested on this Mac
+  (upgrade path) 2026-11-01; the fresh-Mac/original-Opal path is untested until the owner's laptop.
 - entitlements = originals minus team-restricted keys; only the Setup app ("Opal Camera Setup.app",
   `com.amadeus.oc.OpalExtensionInstaller`, hosts the camera system extension) needs a provisioning
   profile for `system-extension.install`: `get-profile.sh` (CHANGES THE DEV ACCOUNT — ask first) uses a

@@ -1,0 +1,70 @@
+#!/bin/bash
+# Opal (custom build) package — postinstall, runs as root after /Applications/Opal.app is in place.
+# Installs the launchd items the app needs, activates/updates the camera extension, and starts Opal.
+# Log: /var/log/opal-custom-install.log
+exec >>/var/log/opal-custom-install.log 2>&1
+echo "== postinstall $(date)"
+SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+USER_NAME=$(stat -f %Su /dev/console)
+USER_ID=$(id -u "$USER_NAME")
+USER_HOME=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | awk '{print $2}')
+asuser() { launchctl asuser "$USER_ID" sudo -u "$USER_NAME" "$@"; }
+APP=/Applications/Opal.app
+EXT_ID=com.amadeus.oc.OpalCamera.opalCameraExtension
+EXT_PLIST="$APP/Contents/MacOS/Opal Camera Setup.app/Contents/Library/SystemExtensions/$EXT_ID.systemextension/Contents/Info.plist"
+EXT_VER="$(defaults read "$EXT_PLIST" CFBundleShortVersionString)/$(defaults read "$EXT_PLIST" CFBundleVersion)"
+
+# 1. root rendezvous service for the camera extension (the app's XPC services and the extension meet here)
+SHIM="$APP/Contents/Library/LaunchServices/com.amadeus.oc.cameraExtensionShim"
+cat > /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.amadeus.oc.cameraExtensionShim</string>
+  <key>Program</key><string>$SHIM</string>
+  <key>ProgramArguments</key><array><string>$SHIM</string></array>
+  <key>MachServices</key><dict><key>com.amadeus.oc.cameraExtensionShim</key><true/></dict>
+</dict></plist>
+PLIST
+
+# 2. start Opal when an Opal C1 is plugged in: stock firmware (PID f63b) or our flashed program (f63d)
+USBH="$APP/Contents/Library/USBItems/OpalCameraStartOnUsbPlugged.app/Contents/MacOS/OpalCameraStartOnUsbPlugged"
+cat > /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.plist <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent</string>
+  <key>ProgramArguments</key><array><string>$USBH</string></array>
+  <key>LaunchEvents</key><dict><key>com.apple.iokit.matching</key><dict>
+    <key>com.apple.device-attach</key><dict>
+      <key>IOProviderClass</key><string>IOUSBDevice</string><key>IOMatchLaunchStream</key><true/>
+      <key>idVendor</key><integer>999</integer><key>idProduct</key><integer>63035</integer></dict>
+    <key>com.apple.device-attach-f63d</key><dict>
+      <key>IOProviderClass</key><string>IOUSBDevice</string><key>IOMatchLaunchStream</key><true/>
+      <key>idVendor</key><integer>999</integer><key>idProduct</key><integer>63037</integer></dict>
+  </dict></dict>
+</dict></plist>
+PLIST
+chown root:wheel /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.plist
+chmod 644 /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.plist
+launchctl bootstrap system /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist
+launchctl bootstrap "gui/$USER_ID" /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.plist
+
+# 3. settings: none are shipped. The custom build imports the original app's settings on its first launch if
+#    preinstall found any on this Mac (opal-settings-export.plist); otherwise Opal starts with its defaults.
+
+# 4. camera extension: activate (fresh Mac) or replace (newer build) via the Setup app's own install mode
+if systemextensionsctl list 2>/dev/null | grep -q "UHD99KF9X7.$EXT_ID ($EXT_VER).*activated enabled"; then
+  echo "extension $EXT_VER already active"
+else
+  asuser open -n --env ForceReinstall=1 "$APP/Contents/MacOS/Opal Camera Setup.app"
+  for i in $(seq 30); do systemextensionsctl list 2>/dev/null | grep -q "$EXT_ID ($EXT_VER)" && break; sleep 1; done
+  STATE=$(systemextensionsctl list 2>/dev/null | grep "$EXT_ID ($EXT_VER)")
+  echo "extension: ${STATE:-not registered}"
+  # first install on this Mac: the user has to allow it once
+  case "$STATE" in *"waiting for user"*) asuser open "x-apple.systempreferences:com.apple.LoginItems-Settings.extension";; esac
+fi
+
+# 5. start Opal
+asuser open -a "$APP"
+exit 0
