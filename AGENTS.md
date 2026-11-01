@@ -147,9 +147,11 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   Extensions → Camera Extensions (ⓘ). Verified then: shim daemon running, new extension running and
   connected, opalcore loaded in the device service (`camera.log`: hooks installed, depthai log tap attached,
   camera logs flowing), debounce hold/apply AND cancel path ("pending off superseded"), launchquiet,
-  USB agent fires on `f63d`. Still to verify: a meeting app using the new "Opal C1" (appsConnectedToPlugin
-  true → sensor stays on → off 5 s after close). The old extension (team 97Z3HJWCRT) is still active
-  alongside it — remove once the new one is confirmed (`systemextensionsctl list`).
+  USB agent fires on `f63d`. Meeting app verified 00:10 (Discord): served by the new extension, `CamEx: true` →
+  streamingOn; Discord stopped and restarted its stream 2 s apart and the debounce kept the sensor on
+  ("pending off superseded"). Chip 52.7 °C / CSS 52 % / MSS 70 % while streaming in a dark room (gain 24x).
+  The old extension (team 97Z3HJWCRT) is still `activated enabled` but publishes no device (only one
+  "Opal C1" shows); left alone as harmless — it may drop after a reboot.
 - `install-custom-opal.sh` (owner runs it; sudo): moves /Applications/Opal.app + all com.opalcamera.*
   launchd plists to `rollback/<ts>/`, installs build, adds `com.amadeus.oc.cameraExtensionShim` daemon and
   a USB agent matching PIDs f63b+f63d. `rollback-custom-opal.sh` reverses it.
