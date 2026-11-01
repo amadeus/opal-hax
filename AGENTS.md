@@ -45,6 +45,12 @@ If the user says the camera hung or crashed, go straight to **Hang playbook** be
   ~2 s after stream start, popover flapping, resets) are NOT the explanation for the real hangs. Look at what
   accumulates during a long stream: heat (chip temp in camera.log `[telemetry]` every 30 s and telemetry.log
   every 5 s), memory (CMX 96 % used), NN load, USB/dock errors. The custom build now records all of these.
+- **Overnight soak 2026-11-01 (custom build, 4K output, Discord call, lens covered, bokeh+skin+I2+focus lock on):
+  4 h 22 min continuous stream (00:26 → 04:48), NO crash.** Ended when Discord closed the camera itself (client
+  `stopStream`), camera healthy to the last second. Chip: 47 °C → 58 °C at 10 min → plateau 58.5–61 °C (peak 61.0)
+  for 4 h. CSS 56–64 %, MSS 63–72 %, DDR 143/337 MB flat (81 MB at 1080p), CMX 2.39/2.50 MB flat, sensor 30.1 fps
+  throughout. So a long 4K stream by itself does not hang it in a cool room; heat plateaus below the app's 65 °C mark.
+  Record: `~/Library/Logs/opal-watch/overnight-2026-11-01.log`, camera.log, telemetry.log.
 
 - Thermal (host-booted, 4K30, `tools/thermal_run2.log`): streaming chip temp 46.8→49.4 °C after 5 min
   and rising; sensor stopped 42.4→37.3 °C and falling; CPU 27 % → 2 %.
