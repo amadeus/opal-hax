@@ -141,10 +141,15 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   profile for `system-extension.install`: `get-profile.sh` (CHANGES THE DEV ACCOUNT — ask first) uses a
   throwaway Xcode project + `xcodebuild -allowProvisioningUpdates` (with `DEVELOPER_DIR`, since
   xcode-select points at CLT) and writes `build/Setup.provisionprofile`; then rebuild with `--profile`.
-- Verified so far: deep signature OK; the custom main app runs (no AppleSystemPolicy kill), imported
-  settings, launchquiet works. Not yet verified: shim daemon, new extension, opalcore inside the device
-  service — the app waits for the shim (`installShim error shimNotReachable`) before starting the camera,
-  so these need the real install.
+- **INSTALLED 2026-11-01 00:03** (originals in `rollback/20261101-000311/`). Profile obtained via
+  `get-profile.sh` (Xcode account had to be re-added first). After install the new extension sat in
+  `[activated waiting for user]` until the owner enabled it under System Settings → General → Login Items &
+  Extensions → Camera Extensions (ⓘ). Verified then: shim daemon running, new extension running and
+  connected, opalcore loaded in the device service (`camera.log`: hooks installed, depthai log tap attached,
+  camera logs flowing), debounce hold/apply AND cancel path ("pending off superseded"), launchquiet,
+  USB agent fires on `f63d`. Still to verify: a meeting app using the new "Opal C1" (appsConnectedToPlugin
+  true → sensor stays on → off 5 s after close). The old extension (team 97Z3HJWCRT) is still active
+  alongside it — remove once the new one is confirmed (`systemextensionsctl list`).
 - `install-custom-opal.sh` (owner runs it; sudo): moves /Applications/Opal.app + all com.opalcamera.*
   launchd plists to `rollback/<ts>/`, installs build, adds `com.amadeus.oc.cameraExtensionShim` daemon and
   a USB agent matching PIDs f63b+f63d. `rollback-custom-opal.sh` reverses it.
