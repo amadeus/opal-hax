@@ -40,6 +40,12 @@ If the user says the camera hung or crashed, go straight to **Hang playbook** be
 
 ## Key findings so far
 
+- **OWNER'S OBSERVATION (2026-11-01, authoritative): the hangs happen IN THE MIDDLE of a video session — the
+  camera dies while streaming. Never at stream start or stop.** So the start/stop theories below (MSS crash
+  ~2 s after stream start, popover flapping, resets) are NOT the explanation for the real hangs. Look at what
+  accumulates during a long stream: heat (chip temp in camera.log `[telemetry]` every 30 s and telemetry.log
+  every 5 s), memory (CMX 96 % used), NN load, USB/dock errors. The custom build now records all of these.
+
 - Thermal (host-booted, 4K30, `tools/thermal_run2.log`): streaming chip temp 46.8→49.4 °C after 5 min
   and rising; sensor stopped 42.4→37.3 °C and falling; CPU 27 % → 2 %.
 - Opal app only *logs* (Sentry breadcrumb) avg chip temp > 65 °C ("Painful temperature!") and fps < 30.
@@ -69,7 +75,8 @@ If the user says the camera hung or crashed, go straight to **Hang playbook** be
   face detection NN (always while streaming), Google-Meet segmentation NN (bokeh), hand-pose NNs
   (gestures), PDAF focus, SystemLogger. Mac-side cost while streaming ≈ 30 % of one core total and barely
   changes with effects; camera-side cost does (MSS CPU 13 % → 29 %, +3 °C).
-- **Network**: Sentry (crash reports + breadcrumbs), Mixpanel analytics (token 3943…, events incl. camera
+- **Network** (all blocked in the custom build since 2026-11-01: DSN host + api.mixpanel.com → `.invalid`;
+  build asserts none remain): Sentry (crash reports + breadcrumbs), Mixpanel analytics (token 3943…, events incl. camera
   serial; macOS flags it "known tracker"), update checks on `opalcamera.sfo3.digitaloceanspaces.com`.
   No code uploads frames/images anywhere.
 - **Injectable**: main app and `OpalCameraDeviceService` have `allow-dyld-environment-variables` +

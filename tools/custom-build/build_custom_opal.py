@@ -13,6 +13,7 @@ Steps
       97Z3HJWCRT                           -> UHD99KF9X7                            (team id)
       com.opalcamera                       -> com.amadeus.oc                        (bundle ids, mach services, subsystems)
       opalcamera.sfo3.digitaloceanspaces.com -> xxx….invalid                        (auto-updater can't replace our build)
+      o815788.ingest.sentry.io / api.mixpanel.com -> xxx….invalid                   (no crash reports / analytics)
  4. rename files/dirs whose names contain com.opalcamera
  5. build our code in: opalcore.dylib -> camera-driver XPC service, opalspy.dylib -> main app (LC_LOAD_DYLIB)
  6. entitlements per component = originals with the same replacements, minus team-restricted keys
@@ -39,7 +40,12 @@ REPLACEMENTS = [
     (TEAM_OLD, TEAM_NEW),
     (b"com.opalcamera", b"com.amadeus.oc"),
     (b"opalcamera.sfo3.digitaloceanspaces.com", b"x" * 30 + b".invalid"),
+    # tracking off: Sentry crash/breadcrumb uploads (DSN host in Opal + both XPC services) and Mixpanel analytics
+    # (events incl. the camera serial). Unresolvable hosts, so nothing leaves the Mac.
+    (b"o815788.ingest.sentry.io", b"x" * 16 + b".invalid"),
+    (b"api.mixpanel.com", b"x" * 8 + b".invalid"),
 ]
+TRACKERS = [b"ingest.sentry.io", b"api.mixpanel.com"]
 for a, b in REPLACEMENTS:
     assert len(a) == len(b), (a, b)
 
@@ -142,6 +148,8 @@ def main():
                 os.rename(os.path.join(d, x), os.path.join(d, x.replace("com.opalcamera", "com.amadeus.oc")))
     leftovers = [p for p in walk_files(OUT) if b"com.opalcamera" in open(p, "rb").read() or TEAM_OLD in open(p, "rb").read()]
     assert not leftovers, f"identifiers left in: {leftovers}"
+    trackers = [p for p in walk_files(OUT) if any(t in open(p, "rb").read() for t in TRACKERS)]
+    assert not trackers, f"tracker endpoints left in: {trackers}"
 
     # 5. our code
     run(os.path.join(TOOLS, "opalcore", "build.sh"), quiet=True)
