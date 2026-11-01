@@ -58,7 +58,10 @@ while True:
 )PY";
 
 // withIdleWatcher=false reproduces Opal's original flashed pipeline exactly.
-inline dai::Pipeline buildStandalonePipeline(const std::string& tuningBlob, bool withIdleWatcher, bool verbose) {
+// antiBanding: mains frequency for flicker suppression (Opal's original pipeline uses 60 Hz).
+inline dai::Pipeline buildStandalonePipeline(const std::string& tuningBlob, bool withIdleWatcher, bool verbose,
+                                             dai::CameraControl::AntiBandingMode antiBanding =
+                                                 dai::CameraControl::AntiBandingMode::MAINS_60_HZ) {
     dai::Pipeline p;
     auto cam = p.create<dai::node::ColorCamera>();
     cam->setBoardSocket(dai::CameraBoardSocket::RGB);
@@ -66,7 +69,7 @@ inline dai::Pipeline buildStandalonePipeline(const std::string& tuningBlob, bool
     cam->setPreviewSize(1920, 1080);
     cam->setImageOrientation(dai::CameraImageOrientation::ROTATE_180_DEG);
     cam->initialControl.setAutoFocusMode(dai::CameraControl::AutoFocusMode::AUTO);
-    cam->initialControl.setAntiBandingMode(dai::CameraControl::AntiBandingMode::MAINS_60_HZ);
+    cam->initialControl.setAntiBandingMode(antiBanding);
     if(!tuningBlob.empty()) p.setCameraTuningBlobPath(tuningBlob);
     cam->setResolution(dai::ColorCameraProperties::SensorResolution::THE_4_K);
     cam->setIspScale(1, 2);

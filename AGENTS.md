@@ -155,10 +155,13 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   updateCalibrationVersion]` and dev-mode `forceFlashCamera:` return on entry (original bytes asserted), so the app
   can never re-flash the camera (only the main app links depthai's flash APIs; the device service's "Flashing
   device" log is just the RAM boot). `OpalCameraUpdateXPC.xpc` (pkg installer) deleted. The Updates settings panel
-  (version, git hash, auto-install toggle, changelog) is hidden at runtime by `tools/opalspy/noupdates.m`: it points
+  (version, git hash, auto-install toggle, changelog) is hidden at runtime by `tools/opalspy/hidepanels.m`: it points
   UpdatesPanelView's SwiftUI `View` witness table at EmptyView (Body type, Body:View conformance, no-op body getter);
-  log line "noupdates: Updates settings panel hidden" in opalspy.log. `DATA_PATCHES` shrinks the Settings page
+  log line "hidepanels: UpdatesPanelView hidden" in opalspy.log. `DATA_PATCHES` shrinks the Settings page
   height constant 547 → 444 pt (the 4 remaining panels; gap above Quit then equals the 10 pt between groups).
+  **Audio > Noise cancellation** panel hidden the same way (owner's request; NoiseCancellationPanelView, not a
+  persisted setting) and the Audio page's fixed row count patched 3 → 2 (`CODE_PATCHES`, TabManager page height =
+  rows × 72 + (rows−1) × 10 pt). TabManager pages: 1 Camera, 2 Audio, 3 Effects, 4 Manual, 5 Settings.
   Kept: camera-extension "update" logic (CamEx requiresUpdate) — that re-activates our own extension, it's not
   app updating. `update-custom-opal.sh` now keeps the replaced build in `previous-custom/<ts>/`.
 - **Release builds = Developer ID + notarized (2026-11-01)**, so they run on any Mac and outlive the certificate:
@@ -181,7 +184,32 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   extension activate/replace via ForceReinstall when the bundled version isn't already active (opens Camera
   Extensions settings if it's waiting for the user), launches Opal. No settings are shipped (owner's choice: a Mac
   keeps its own Opal settings, else defaults). Log: `/var/log/opal-custom-install.log`. Tested on this Mac
-  (upgrade path) 2026-11-01; the fresh-Mac/original-Opal path is untested until the owner's laptop.
+  (upgrade path) and on the owner's laptop (fresh path) 2026-11-01. Laptop lesson: it also had an older Opal "v2"
+  (`/Applications/Opal.localized/Opal.app`, extension `com.opalcamera.Opal.v2.opalCameraExtension`, settings domain
+  `97Z3HJWCRT.com.opalcamera.v2.Opal`), and Installer "upgraded" THAT bundle in place instead of installing to
+  /Applications/Opal.app (pkg is non-relocatable, still happened). So preinstall now handles every `Opal*.app` under
+  /Applications and ~/Applications (originals: settings export, own ForceUninstall per extension id, Trash, empty
+  folder removed; stray custom copies deleted), and postinstall moves the app to /Applications/Opal.app if it landed
+  elsewhere. The v2 extension on the laptop stays registered (its app was overwritten, so nothing can uninstall it
+  without SIP off); harmless, it publishes no camera.
+- **Extension approval guide** (`tools/opalspy/extguide.m`): macOS requires the user to approve the camera extension
+  (Login Items & Extensions > Extensions > Camera Extensions (i) > Opal C1) and its own "Camera Extension Blocked"
+  alert points at Privacy & Security, which confused the owner. When Opal sees our extension `waiting for user`
+  (polls `systemextensionsctl list` for 2 min after launch) it shows step-by-step instructions + "Open Settings",
+  then confirms "Opal C1 is ready" once enabled. Untested (both Macs already approved). Disable: `OPALSPY_NO_EXT_GUIDE=1`.
+  The pkg no longer opens System Settings itself.
+- **Latest installer is committed at the repo root** as `Opal-<version>.pkg.zip` (built by make-pkg.sh).
+- **Camera firmware updater (2026-11-01, built but deliberately NOT tested — owner's call):** `tools/opalspy/
+  firmwareoffer.m` watches (IOKit) for an `IOUSBHostInterface` 03e7:**f63b with bInterfaceClass 14** = a camera
+  running Opal's ORIGINAL flashed program (Opal-booted cameras are f63b without a video interface — verified on the
+  owner's camera; ours is f63d). It shows a critical alert with an explicit brick-risk / "at your own risk" warning
+  ("Not Now" is the default button; asked again next launch). On accept it opens `Opal.app/Contents/Helpers/Opal
+  Camera Updater.app` (`tools/camera-updater/`, links Opal's libdepthai-core/libusb) and quits Opal. The updater
+  boots out the USB agent, resets the camera into its bootloader, flashes the bootloader only if
+  `getFlashedVersion() < getEmbeddedBootloaderVersion()` (same calls as `opaltool blflash`), flashes the idle-watcher
+  standalone program (`standalone.hpp`, anti-banding 50/60 Hz from the Mac's region, auto for JP), waits for f63d,
+  restores the agent, restarts Opal. Log: `~/Library/Logs/opal-watch/camera-update.log`. Disable the offer with env
+  `OPALSPY_NO_FIRMWARE_OFFER=1`. The owner's camera never matches (it's f63d).
 - entitlements = originals minus team-restricted keys; only the Setup app ("Opal Camera Setup.app",
   `com.amadeus.oc.OpalExtensionInstaller`, hosts the camera system extension) needs a provisioning
   profile for `system-extension.install`: `get-profile.sh` (CHANGES THE DEV ACCOUNT — ask first) uses a

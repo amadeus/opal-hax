@@ -31,33 +31,58 @@ rm -rf /Library/PrivilegedHelperTools/com.opalcamera.*
 DAL=/Library/CoreMediaIO/Plug-Ins/DAL/OpalVirtualCamera.plugin
 if [ -d "$DAL" ] && codesign -dv "$DAL" 2>&1 | grep -q "Identifier=com.opalcamera"; then rm -rf "$DAL"; echo "removed $DAL"; fi
 
-# 3. the original app
-APP=/Applications/Opal.app
-if [ -d "$APP" ] && [ "$(defaults read "$APP/Contents/Info.plist" CFBundleIdentifier 2>/dev/null)" = com.opalcamera.OpalCamera ]; then
-  # keep its settings for the custom build (imported by opalspy on the custom build's first launch)
-  EXPORT="$USER_HOME/Library/Logs/opal-watch/opal-settings-export.plist"
-  TMP=$(mktemp)
-  asuser defaults export group.97Z3HJWCRT.com.opalcamera.Opal - > "$TMP" 2>/dev/null
-  asuser mkdir -p "$USER_HOME/Library/Logs/opal-watch"
-  RES=$(osascript -l JavaScript "$SCRIPTS/export-oc-settings.js" "$TMP" "$EXPORT")
-  chown "$USER_NAME" "$EXPORT" 2>/dev/null
-  rm -f "$TMP"
-  echo "original settings: $RES"
+# 3. every original Opal app (0.26 at /Applications/Opal.app, older "v2" builds e.g. in /Applications/Opal.localized/)
+#    and any stray copy of the custom build. Nothing named Opal.app may remain anywhere in /Applications, otherwise
+#    Installer may "upgrade" that copy in place instead of installing to /Applications/Opal.app.
+bundle_id() { defaults read "$1/Contents/Info.plist" CFBundleIdentifier 2>/dev/null; }
+APPS=()
+while IFS= read -r a; do APPS+=("$a"); done < <(find /Applications "$USER_HOME/Applications" -maxdepth 3 -name "*.app" -prune \
+  \( -name "Opal*.app" \) 2>/dev/null)
+EXPORT="$USER_HOME/Library/Logs/opal-watch/opal-settings-export.plist"
+N=0
+for APP in "${APPS[@]}"; do
+  ID=$(bundle_id "$APP")
+  case "$ID" in
+    com.amadeus.oc.OpalCamera)  # previous custom build: delete, so no stale files survive and nothing relocates onto it
+      rm -rf "$APP"; echo "removed previous custom build $APP"; continue;;
+    com.opalcamera.*) ;;
+    *) continue;;
+  esac
+  N=$((N + 1))
+  echo "original Opal: $APP ($ID $(defaults read "$APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null))"
+  # keep its settings for the custom build (imported by opalspy on the custom build's first launch); first one wins
+  if [ ! -s "$EXPORT" ]; then
+    asuser mkdir -p "$USER_HOME/Library/Logs/opal-watch"
+    for DOMAIN in group.97Z3HJWCRT.com.opalcamera.Opal 97Z3HJWCRT.com.opalcamera.v2.Opal; do
+      TMP=$(mktemp)
+      asuser defaults export "$DOMAIN" - > "$TMP" 2>/dev/null
+      RES=$(osascript -l JavaScript "$SCRIPTS/export-oc-settings.js" "$TMP" "$EXPORT")
+      rm -f "$TMP"
+      echo "settings from $DOMAIN: $RES"
+      [ -s "$EXPORT" ] && { chown "$USER_NAME" "$EXPORT"; break; }
+    done
+  fi
   # remove its camera extension with its own uninstall mode (env ForceUninstall; must run from /Applications)
-  TEMP_APP="/Applications/Opal Original (removing).app"
+  SETUP_REL="Contents/MacOS/Opal Camera Setup.app"
+  EXT=$(ls "$APP/$SETUP_REL/Contents/Library/SystemExtensions" 2>/dev/null | head -1)
+  EXT=${EXT%.systemextension}
+  TEMP_APP="/Applications/Opal Original (removing $N).app"
   rm -rf "$TEMP_APP"; mv "$APP" "$TEMP_APP"
-  if systemextensionsctl list 2>/dev/null | grep -q "97Z3HJWCRT.*activated"; then
-    asuser open -n --env ForceUninstall=1 "$TEMP_APP/Contents/MacOS/Opal Camera Setup.app"
-    for i in $(seq 30); do systemextensionsctl list 2>/dev/null | grep -q "97Z3HJWCRT.*activated" || break; sleep 1; done
-    pkill -TERM -f "Opal Original (removing).app"
-    echo "original extension: $(systemextensionsctl list 2>/dev/null | grep 97Z3HJWCRT | sed 's/.*\[/[/')"
+  if [ -n "$EXT" ] && [ -d "$TEMP_APP/$SETUP_REL" ] && systemextensionsctl list 2>/dev/null | grep -q "$EXT .*activated"; then
+    asuser open -n --env ForceUninstall=1 "$TEMP_APP/$SETUP_REL"
+    for i in $(seq 20); do systemextensionsctl list 2>/dev/null | grep -q "$EXT .*activated" || break; sleep 1; done
+    pkill -TERM -f "Opal Original (removing $N).app"
+    echo "extension $EXT: $(systemextensionsctl list 2>/dev/null | grep "$EXT " | sed 's/.*\[/[/')"
   fi
   # to the user's Trash (recoverable), not deleted
-  DEST="$USER_HOME/.Trash/Opal (original $(date +%Y%m%d-%H%M%S)).app"
-  mv "$TEMP_APP" "$DEST" && chown -R "$USER_NAME" "$DEST" && echo "original app moved to $DEST"
-  pkgutil --forget com.opalcamera.OpalCamera 2>/dev/null
-elif [ -d "$APP" ]; then
-  # previous custom build: remove it so no stale files survive inside the bundle
-  rm -rf "$APP"
-fi
+  DEST="$USER_HOME/.Trash/Opal (original $N $(date +%Y%m%d-%H%M%S)).app"
+  mv "$TEMP_APP" "$DEST" && chown -R "$USER_NAME" "$DEST" && echo "moved to $DEST"
+  # an emptied Opal folder (e.g. /Applications/Opal.localized) goes too
+  DIR=$(dirname "$APP")
+  if [ "$DIR" != /Applications ] && [ "$DIR" != "$USER_HOME/Applications" ] && \
+     [ -z "$(find "$DIR" -mindepth 1 -maxdepth 1 ! -name .localized ! -name .DS_Store 2>/dev/null)" ]; then
+    rm -rf "$DIR"; echo "removed empty folder $DIR"
+  fi
+done
+for R in $(pkgutil --pkgs 2>/dev/null | grep -i '^com.opalcamera'); do pkgutil --forget "$R"; done
 exit 0

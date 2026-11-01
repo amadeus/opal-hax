@@ -17,7 +17,7 @@ Steps
  4. rename files/dirs whose names contain com.opalcamera
  4b. no updating: main executable thinned to arm64 and its update/firmware-flash entry points patched to return
      (CODE_PATCHES, original bytes verified first); the updater XPC service is removed. The Updates settings
-     panel is hidden at runtime by opalspy (tools/opalspy/noupdates.m).
+     panel is hidden at runtime by opalspy (tools/opalspy/hidepanels.m), as is Audio > Noise cancellation.
  5. build our code in: opalcore.dylib -> camera-driver XPC service, opalspy.dylib -> main app (LC_LOAD_DYLIB)
  6. entitlements per component = originals with the same replacements, minus team-restricted keys
     (application-identifier, team-identifier, associated-domains). The Setup app (system-extension host) keeps
@@ -72,6 +72,9 @@ CODE_PATCHES = [
     (0x10001493c, "ffc301d1f65704a9", RET, "-[FirmwareManager flashApplicationPipelineWithProgress:andCompletion:]"),
     (0x10001541c, "f657bda9f44f01a9", RET0, "-[FirmwareManager updateCalibrationVersion] (writes EEPROM)"),
     (0x1001c2640, "ff8301d1f44f04a9", RET, "-[DeveloperModeViewController forceFlashCamera:]"),
+    # TabManager page height: the Audio page is a fixed 3 rows (Mute, Studio Sound, Noise cancellation) of 72 pt + 10 pt
+    # gaps; Noise cancellation is hidden (opalspy hidepanels.m), so 2 rows.
+    (0x1003b56fc, "0010611e", bytes.fromhex("0010601e"), "Audio page rows: fmov d0, #3.0 -> #2.0"),
 ]
 # Settings page content height (static Double used by SettingsView and TabManager's popover sizing). The four
 # remaining panels measure 444 pt (96+126+126+66 + 3x10 spacing); 547 included the Updates panel. The Quit footer
@@ -234,7 +237,12 @@ def main():
     shutil.copy(os.path.join(TOOLS, "opalspy", "opalspy.dylib"), os.path.join(OUT, "Contents/Frameworks/opalspy.dylib"))
     run("/usr/bin/python3", "-I", os.path.join(TOOLS, "opalcore", "insert_dylib.py"),
         os.path.join(OUT, "Contents/MacOS/Opal"), "@executable_path/../Frameworks/opalspy.dylib", quiet=True)
-    print("built in opalcore (camera-driver service) and opalspy (main app)")
+    # camera firmware updater (offered by opalspy firmwareoffer.m for cameras still on Opal's original firmware)
+    run(os.path.join(TOOLS, "camera-updater", "build.sh"), quiet=True)
+    os.makedirs(os.path.join(OUT, "Contents/Helpers"), exist_ok=True)
+    run("ditto", os.path.join(TOOLS, "camera-updater", "build", "Opal Camera Updater.app"),
+        os.path.join(OUT, "Contents/Helpers/Opal Camera Updater.app"))
+    print("built in opalcore (camera-driver service), opalspy (main app) and the camera updater")
 
     # 6+7. sign inside-out
     def ent(rel, keep_restricted=False):
@@ -252,6 +260,7 @@ def main():
         for f in files:
             if f.endswith(".dylib"):
                 sign(os.path.join(d, f))
+    sign(os.path.join(OUT, "Contents/Helpers/Opal Camera Updater.app"))
     for x in ["OpalCameraVideoService", "OpalCameraDeviceService", "OpalCameraUninstallXPC"]:
         rel = f"Contents/XPCServices/{x}.xpc"
         sign(os.path.join(OUT, rel), ent(rel))

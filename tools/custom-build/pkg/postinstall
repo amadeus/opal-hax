@@ -10,6 +10,19 @@ USER_ID=$(id -u "$USER_NAME")
 USER_HOME=$(dscl . -read "/Users/$USER_NAME" NFSHomeDirectory | awk '{print $2}')
 asuser() { launchctl asuser "$USER_ID" sudo -u "$USER_NAME" "$@"; }
 APP=/Applications/Opal.app
+# safety net: if Installer put the app anywhere else (it once "upgraded" an old copy in /Applications/Opal.localized),
+# move it to /Applications/Opal.app
+if [ ! -d "$APP" ]; then
+  FOUND=$(find /Applications -maxdepth 3 -name "Opal.app" -prune 2>/dev/null | while read -r a; do
+    [ "$(defaults read "$a/Contents/Info.plist" CFBundleIdentifier 2>/dev/null)" = com.amadeus.oc.OpalCamera ] && echo "$a"; done | head -1)
+  if [ -n "$FOUND" ]; then
+    mv "$FOUND" "$APP" && echo "moved $FOUND -> $APP"
+    DIR=$(dirname "$FOUND")
+    [ -z "$(find "$DIR" -mindepth 1 -maxdepth 1 ! -name .localized ! -name .DS_Store 2>/dev/null)" ] && rm -rf "$DIR"
+  else
+    echo "ERROR: Opal.app not found after install"; exit 1
+  fi
+fi
 EXT_ID=com.amadeus.oc.OpalCamera.opalCameraExtension
 EXT_PLIST="$APP/Contents/MacOS/Opal Camera Setup.app/Contents/Library/SystemExtensions/$EXT_ID.systemextension/Contents/Info.plist"
 EXT_VER="$(defaults read "$EXT_PLIST" CFBundleShortVersionString)/$(defaults read "$EXT_PLIST" CFBundleVersion)"
@@ -61,8 +74,7 @@ else
   for i in $(seq 30); do systemextensionsctl list 2>/dev/null | grep -q "$EXT_ID ($EXT_VER)" && break; sleep 1; done
   STATE=$(systemextensionsctl list 2>/dev/null | grep "$EXT_ID ($EXT_VER)")
   echo "extension: ${STATE:-not registered}"
-  # first install on this Mac: the user has to allow it once
-  case "$STATE" in *"waiting for user"*) asuser open "x-apple.systempreferences:com.apple.LoginItems-Settings.extension";; esac
+  # first install on this Mac: the user has to allow it once; Opal (opalspy extguide.m) walks them through it
 fi
 
 # 5. start Opal

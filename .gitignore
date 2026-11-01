@@ -10,6 +10,7 @@
 *.o
 /tools/opal-launch/opal-launch
 /tools/opalspy/cmio_inuse
+/tools/camera-updater/build/
 # camera captures / scratch
 *.mp4
 .DS_Store
