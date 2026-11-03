@@ -51,6 +51,11 @@ If the user says the camera hung or crashed, go straight to **Hang playbook** be
   for 4 h. CSS 56–64 %, MSS 63–72 %, DDR 143/337 MB flat (81 MB at 1080p), CMX 2.39/2.50 MB flat, sensor 30.1 fps
   throughout. So a long 4K stream by itself does not hang it in a cool room; heat plateaus below the app's 65 °C mark.
   Record: `~/Library/Logs/opal-watch/overnight-2026-11-01.log`, camera.log, telemetry.log.
+- **Daytime Google Meet call 2026-11-02 07:55 → 09:15 (80 min, 1080p, bokeh+skin+focus lock, display on): hottest yet,
+  NO crash.** 37 °C → 58 @10 min → 64.7 @25 min → 66 @45 min → 69.3 @80 min, still creeping ~0.5 °C/10 min (single
+  samples up to 69.4). Same camera load as the overnight soak (CSS ~54 %, MSS ~70 %), sensor 58 °C, 30.1 fps steady,
+  no errors. Ended cleanly (client stop → debounce → off; 54.6 °C 30 s later). ~5–9 °C hotter than the night run at the
+  same load → environment (room/display heat/sun), not the client app (the camera's work doesn't depend on it).
 
 - Thermal (host-booted, 4K30, `tools/thermal_run2.log`): streaming chip temp 46.8→49.4 °C after 5 min
   and rising; sensor stopped 42.4→37.3 °C and falling; CPU 27 % → 2 %.
@@ -235,6 +240,84 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   a USB agent matching PIDs f63b+f63d. `rollback-custom-opal.sh` reverses it.
 - The original Setup app can deactivate its extension (`deactivationRequestForExtension`, "Setup
   uninstall requested") — trigger not yet identified; otherwise macOS drops it once its app is gone.
+
+## Windows port (started 2026-11-01, `tools/win/`, details in `tools/win/README.md`)
+
+Owner's goal: all Opal Mac app features on a Windows PC. Approach: public depthai-core at `a3c01e446` (the commit
+Opal's private fork is based on, found by matching bootloader `bb9e4c86` + depthai-shared `0b456575`) + Opal's
+firmware extracted from Opal.app + Opal's exact app-mode pipeline captured from the running custom build
+(`tools/opalcore/pipecap.mm`, off unless `~/Library/Logs/opal-watch/pipecap/ENABLE` exists; session 1 recorded with
+the owner toggling every feature: `tools/vendor/opal-capture/session1`, gitignored). The template rebuild is
+byte-identical to Opal's and streams video, face detection, segmentation, hand pose, audio and sysinfo from the
+camera on macOS. The camera core (`tools/win/core`) is tested on the camera on macOS; the Windows app (effects,
+overlays, gestures, tray UI), the virtual camera DLL and build/install scripts are written and compile-checked with
+MinGW but NOT yet run on Windows. Windows 11 only (owner's call). The owner does NOT want to compile on the PC: build it here with
+`tools/win/build-windows-on-mac.sh` (MinGW cross-compile, static, system DLLs only) -> `build/Opal-Windows-<date>.zip`;
+the PC just runs Opal.exe, which installs itself (a .cmd/PowerShell installer got the download flagged as a virus
+by Chrome/Defender; binaries are unsigned). Opal assets never go through git. The flashed f63d
+program exposes a WinUSB interface (MS OS descriptor) so XLink can reset/boot it on Windows without drivers.
+Looks: all 13 are per-pixel and baked into LUTs from Opal's own code (`tools/win/luts`); Opal converts camera NV12
+with BT.709 full range.
+Video effects (2026-11-01): every Windows effect is now a transcription of Opal's own (bokeh + person mask, touch-up,
+skin tone, highlights/shadows, pixellate, Face Lock Kalman framing, zoom, spotlight, mirror, look blend, YUV
+conversions), in Opal's order at the camera resolution with 8-bit intermediates, checked against Opal's Metal shaders by
+`tools/win/verify/shader-check.sh`; specs and known gaps (CLAHE/contrast, vibrance not ported) in `tools/win/verify/`.
+UI (2026-11-02, owner: "doesn't feel windows native"): rebuilt as Windows 11 Settings-style cards (`app/fluent.cpp`, WinUI
+metrics/colours/accent/light-dark, smooth scrolling), screenshot on the Mac with `tools/win/preview/preview.sh`. Tray: with
+NOTIFYICON_VERSION_4 a left click sends WM_LBUTTONUP and NIN_SELECT; toggling on both made the popover flash shut. Mic
+mute added (Opal's `AudioInConfig.disableOutput`).
+Observed 2026-11-02 on the PC: with Opal quit, the flashed f63d program restarted ~1 s after every boot (F63C 6 s -> F63D
+1 s -> gone, looping). Disabling the f63d's WinUSB function (MI_00 "S_BULKDATA", pnputil /disable-device) stopped it;
+the same program host-booted by `tools/win/webcamtest` (OpalWebcamTest.exe, RAM only) ran fine for 40 s. After a PC
+restart (MI_00 re-enabled) the loop was gone, so it was a stuck Windows/USB state, cause unknown. If it recurs: a
+USBPcap/Wireshark capture of the loop shows what Windows sends before the camera drops.
+Testing it on the camera means taking it from Opal: boot out the USB agent and quit Opal first, restore after.
+Observation: a hand-made `ColorCamera.video → XLinkOut` pipeline makes Opal's firmware crash with the same
+`Fatal error on MSS CPU: trap: 00` signature as the old intermittent crash, ~1.5 s after streaming starts, every
+time, with Opal's own library too (autofocus off did NOT avoid it; one clean run was a fluke). Opal's real pipeline
+does not crash. Worth bisecting later: it may explain the original hangs.
+
+## Opal Composer (branch `composer-hax`, static analysis only, 2026-11-01, NOT run yet)
+
+`Opal Composer.app` (repo root, untracked) = Opal's successor app, **v2.0 build 24, signed 2024-10-18**, bundle id
+`com.opalcamera.Opal.v2` (the "Opal v2" found on the owner's laptop). For the C1 and the Opal Tadpole (a Linux camera,
+USB 0x3673:0002, own UVC/protobuf service + `tadpole_firmware.tar.gz` kernel/ubifs). Same architecture as Opal 0.26
+(device service with depthai → video service → CMIO extension `com.opalcamera.Opal.v2.opalCameraExtension` + shim),
+plus Sparkle updates (`updates.opal.camera`, still resolves → Squarespace), Sentry, Mixpanel. Its depthai is a newer
+private build: lib commit `24f609f6`, device firmware `e2929eb3`, bootloader blob `7958b241`. Main app is hardened
+runtime without dyld-env/library-validation exemptions (no injection without re-signing); the device service has them.
+
+How Composer sees a C1 (`+[FirmwareManager isOpalDevice:idProduct:maxPower:]`, libusb scan):
+model 1 = `03e7:f63b` with config `bMaxPower == 5` (a camera running the ORIGINAL flashed program; an app-booted f63b
+has a much higher MaxPower, so Composer ignores cameras another app has booted), model 2 = `03e7:f63d` (newer flashed
+program, what ours enumerates as), model 3 = Tadpole. Camera "firmware version" = USB bcdDevice (major.BCD minor);
+Composer's bundled C1 firmware is **4.10** (`getEmbeddedC1FWVersion`), legacy = 2.0. Our f63d's bcdDevice is unknown
+(app-booted f63b reports 0x0200).
+
+**Why it never worked with this camera: the IMX378 gate.** `checkForConnectedCamera:` (onboarding camera check) loops
+until a C1 is found; for model 1 it host-boots Composer's firmware (RAM only, `getSensorModel` →
+`DeviceBase::getCameraSensorNames`) and if the sensor is `IMX378` it fails with error domain `com.opalcamera.imx378`:
+"The connected camera is not supported by Opal Composer and requires the original Opal Camera application…". This
+camera is IMX378 and was on the original flashed program (model 1) → blocked in onboarding. Composer still carries
+IMX378 bits (`Opal_v0.12.bin` tuning, "Loading compatibility settings for IMX378" capability set), so streaming support
+was probably not removed, just gated. Note the gate only runs for model 1: with our f63d program the onboarding check
+skips the sensor test (then only needs a valid bcdDevice version), so Composer might now get further.
+
+Flashing (the only persistent write Composer can do to a C1; main app only, device service only reads calibration):
+- `checkForDeviceFlashingWithCompletion:` (model 1/2): sensor `IMX378` → not eligible; else opens
+  `DeviceBootloader(info, allowFlashingBootloader=true)` and is eligible ONLY if `getFlashedVersion() == 0.0.15`
+  (ours is 0.0.15). It never calls `flashBootloader`.
+- In-use prompt ("New firmware… proceed with update right now?", log "Detected old firmware X. Offering update.") only
+  when sensor == `IMX582` AND camera version < 4.10 → never for this camera.
+- `flashOpalC1Device:` = `flashConfigClear` + `flash(pipeline, compress)` + `flashConfig` (default USB config, vid 03e7
+  pid f63c). Pipeline (`getApplicationPipelineWithImageTunning:`): ColorCamera + on-camera PDAF autofocus (Kalman) +
+  face-detection NN for focus, ImageManip driven by a Script that follows the UVC frame index (USB3: 4K/1440p/1080p/
+  720p, USB2: 720p), UVC with GPIO 34 = 1 on stream on / 0 off, AudioMic (back mic, +28 dB). No sensor idle stop.
+- Risk if run: the onboarding flash check uses a NEGATIVE test (≠ IMX378). If Composer's firmware fails to read the
+  sensor name, the camera would look eligible and onboarding would offer "Tap to update" (needs a click). Worst case
+  it replaces our standalone program (bootloader untouched) → recoverable with `tools/bin/opaltool flash idle`.
+- Like Opal 0.26, its device service UVC-resets f63b/f63d cameras and host-boots its own firmware for app mode, so it
+  fights our custom Opal for the camera; quit/boot out ours before running it.
 
 ## Auto-launch with recorder (`tools/opal-launch/`)
 

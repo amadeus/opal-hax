@@ -16,3 +16,5 @@
 .DS_Store
 /rollback/
 previous-custom/
+/tools/win/dist/
+/Opal Composer.app/

@@ -8,6 +8,7 @@
 //     camera's own warnings/errors (e.g. "Fatal error on MSS CPU") and periodic info lines are recorded.
 //  3. Idle telemetry: chip temperature + LEON CPU via RPC every 30 s while a device is connected (even when
 //     the sensor is stopped), guarded by a lock against device teardown.
+//  4. pipecap.mm: optional capture of the pipeline + control messages sent to the camera (Windows port reference).
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 
@@ -20,6 +21,7 @@
 #include "depthai/device/Device.hpp"
 
 extern "C" int opal_virtualcam_in_use(void);  // cmio_inuse.m
+void opalcore_pipecap_init(void);              // pipecap.mm
 
 // ---------------------------------------------------------------- logging
 static dispatch_queue_t gLogQ;
@@ -181,6 +183,7 @@ __attribute__((constructor)) static void opalcore_init(void) {
     NSGetSizeAndAlignment("{?=iiiiiiBBBBBdC}", &sz, NULL);
     gStructSize = sz;
     clog(@"---- opalcore loaded into %@ (pid %d), struct %lu bytes", NSProcessInfo.processInfo.processName, getpid(), (unsigned long)sz);
+    opalcore_pipecap_init();
     if(getenv("OPALCORE_DISABLE")) { clog(@"[install] disabled by OPALCORE_DISABLE"); return; }
     gDeviceIvar = class_getInstanceVariable(NSClassFromString(@"DeviceManager"), "_device");
     if(!gDeviceIvar) { clog(@"[install] DeviceManager._device not found; tap disabled"); }

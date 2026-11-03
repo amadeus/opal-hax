@@ -1,0 +1,35 @@
+// Opal.exe resources: icon (id 1: window class + tray), manifest, version info
+#include <winver.h>
+#include <winuser.h>
+
+1 ICON "opal.ico"
+1 RT_MANIFEST "opal.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "Amadeus Demarzi"
+      VALUE "FileDescription", "Opal for Windows - Opal C1 webcam app"
+      VALUE "FileVersion", "1.0.0.0"
+      VALUE "InternalName", "Opal"
+      VALUE "LegalCopyright", "Copyright (C) 2026 Amadeus Demarzi"
+      VALUE "OriginalFilename", "Opal.exe"
+      VALUE "ProductName", "Opal for Windows"
+      VALUE "ProductVersion", "1.0.0.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

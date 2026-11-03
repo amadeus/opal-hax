@@ -10,11 +10,13 @@ I="-I$V/gen -I$V/depthai-core/include -I$V/depthai-core/include/depthai -I$V/dep
 clang -arch arm64 -fobjc-arc -O1 -c cmio_inuse.m -o cmio_inuse.o
 clang++ -arch arm64 -std=c++14 -fobjc-arc -DXLINK_USE_MX_ID_NAME -O1 -w \
   -Wno-error=missing-template-arg-list-after-template-kw $I -c opalcore.mm -o opalcore.o
-clang++ -arch arm64 -dynamiclib -fobjc-arc opalcore.o cmio_inuse.o \
+clang++ -arch arm64 -std=c++14 -fobjc-arc -DXLINK_USE_MX_ID_NAME -O1 -w \
+  -Wno-error=missing-template-arg-list-after-template-kw $I -c pipecap.mm -o pipecap.o
+clang++ -arch arm64 -dynamiclib -fobjc-arc opalcore.o pipecap.o cmio_inuse.o \
   -framework Foundation -framework CoreMediaIO -L"$FW" -ldepthai-core \
   -install_name @executable_path/../Frameworks/opalcore.dylib \
   -Wl,-rpath,@loader_path/../../../../Frameworks \
   -o opalcore.dylib
-rm -f cmio_inuse.o opalcore.o
+rm -f cmio_inuse.o opalcore.o pipecap.o
 codesign -s - -f opalcore.dylib
 echo built opalcore.dylib
