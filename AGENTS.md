@@ -151,7 +151,7 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   `group.97Z3HJWCRT.com.opalcamera.Opal`→`UHD99KF9X7.com.amadeus.oc.OpalShared` (team-prefixed: no profile),
   update host → `xxx….invalid`; renamed files; old ids fully gone (asserted).
 - built in: `opalcore.dylib` (camera-driver service: debounce at source, camera log tap, 30 s chip temp)
-  and `opalspy.dylib` (main app: telemetry, **launchquiet** = no automatic popover/stream on launch,
+  and `opalspy.dylib` (main app: telemetry, (no automatic popover any more: see the popover `CODE_PATCHES` below),
   settings import from `~/Library/Logs/opal-watch/opal-settings-export.plist`, exported by opalspy
   running in the original app — 43 OC* keys exported 2026-10-31).
 - **No updating (2026-11-01, owner's request: "this is an app I control now")**: main executable thinned to arm64;
@@ -167,6 +167,17 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   **Audio > Noise cancellation** panel hidden the same way (owner's request; NoiseCancellationPanelView, not a
   persisted setting) and the Audio page's fixed row count patched 3 → 2 (`CODE_PATCHES`, TabManager page height =
   rows × 72 + (rows−1) × 10 pt). TabManager pages: 1 Camera, 2 Audio, 3 Effects, 4 Manual, 5 Settings.
+  **The popover only opens when the menu-bar icon is clicked** (owner, 2026-11-04): `CODE_PATCHES` NOP Opal's own
+  calls that open it on camera connect/frames (`showPopover()` from DeviceXPCConnectionHelperService, 5 sites). The
+  launch call (`[appDelegate togglePopover:nil]`) can't simply go: it is also Opal's setup (loads the camera view
+  controller; without it the icon stays faded and the camera doesn't connect until the first click, seen
+  2026-11-04), so opalspy `launchsetup.m` runs a sender-less togglePopover: with NSPopover show and NSApp activate
+  skipped. The click action (sender = status button), recording re-shows and URL opens (no scheme) are kept.
+  Clicking the icon with the popover open used to close and immediately reopen it: on this macOS the click first
+  deactivates Opal, `applicationWillResignActive:` closes the popover, then the click's `togglePopover:` finds it closed
+  and shows it. Opal sets `popover.animates = false` (instant close); a `CODE_PATCHES` entry turns animation back on, so
+  the popover is still closing when the action arrives and the toggle closes it (reproduced with a stand-in app).
+  Replaces opalspy's old launchquiet hook (time-window blocking).
   Kept: camera-extension "update" logic (CamEx requiresUpdate) — that re-activates our own extension, it's not
   app updating. `update-custom-opal.sh` now keeps the replaced build in `previous-custom/<ts>/`.
 - **Release builds = Developer ID + notarized (2026-11-01)**, so they run on any Mac and outlive the certificate:

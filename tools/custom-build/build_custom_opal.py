@@ -61,6 +61,7 @@ for a, b in REPLACEMENTS:
 # what). RET = `ret`; RET0 = `mov x0, #0; ret`. All are void functions/methods (or BOOL for RET0) whose callers
 # ignore the result, so returning on entry is clean.
 RET, RET0 = bytes.fromhex("c0035fd6"), bytes.fromhex("000080d2c0035fd6")
+NOP = bytes.fromhex("1f2003d5")
 CODE_PATCHES = [
     (0x10024fb44, "fc6fbda9f44f01a9", RET, "UpdateManager.scheduleCheckForUpdate()"),
     (0x100252478, "fc6fbda9f44f01a9", RET, "UpdateManager.checkForUpdate()"),
@@ -75,6 +76,23 @@ CODE_PATCHES = [
     # TabManager page height: the Audio page is a fixed 3 rows (Mute, Studio Sound, Noise cancellation) of 72 pt + 10 pt
     # gaps; Noise cancellation is hidden (opalspy hidepanels.m), so 2 rows.
     (0x1003b56fc, "0010611e", bytes.fromhex("0010601e"), "Audio page rows: fmov d0, #3.0 -> #2.0"),
+    # The popover opens only when the menu-bar icon is clicked (owner, 2026-11-04). Opal opens it by itself on launch
+    # and when the camera connects, and an open popover keeps the camera streaming. The launch call
+    # ([appDelegate togglePopover:nil]) also sets Opal up (loads the camera view controller; without it the camera
+    # doesn't connect until the first click), so it stays and opalspy's launchsetup.m runs it without the display
+    # step. The camera-connect calls are removed (NOP; each is a void call whose next instruction reloads its
+    # registers from the stack). The click action togglePopover: (status item button) is untouched.
+    # Clicking the icon with the popover open closed it and reopened it at once: on this macOS a click on the app's
+    # own status item first deactivates the app, Opal's applicationWillResignActive closes the popover, and the click's
+    # togglePopover: then finds it closed and shows it. Opal sets popover.animates = false, which makes that close
+    # instant; with AppKit's default animation the popover is still closing (isShown) when the action arrives, so the
+    # toggle closes it and it stays closed (reproduced both ways with a stand-in status item app, 2026-11-04).
+    (0x100386a48, "08008052", bytes.fromhex("28008052"), "popover.animates = false -> true (mov w8, #0 -> #1)"),
+    (0x1001ca9f8, "196afa97", NOP, "camera connect: showPopover() in DeviceXPCConnectionHelperService+OpalCameraInputDelegate"),
+    (0x1001cb1b0, "2b68fa97", NOP, "camera connect: showPopover() (abortedResizingFrame(withFallbackResolution:))"),
+    (0x1001cd1e4, "1e60fa97", NOP, "camera connect: showPopover() in DeviceXPCConnectionHelperService+OpalCameraInputDelegate"),
+    (0x1001ce91c, "505afa97", NOP, "camera connect: showPopover() in DeviceXPCConnectionHelperService+OpalCameraInputDelegate"),
+    (0x1002d7748, "c536f697", NOP, "camera frames: showPopover() in DeviceXPCConnectionHelperService's frame handler"),
 ]
 # Settings page content height (static Double used by SettingsView and TabManager's popover sizing). The four
 # remaining panels measure 444 pt (96+126+126+66 + 3x10 spacing); 547 included the Updates panel. The Quit footer

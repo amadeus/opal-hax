@@ -87,8 +87,8 @@ static void hookLogFeed(void) {
     free(classes);
 }
 
-void opal_launchquiet_install(void);
 void opal_hidepanels_install(void);
+void opal_launchsetup_install(void);
 void opal_firmwareoffer_install(void);
 void opal_extguide_install(void);
 
@@ -115,12 +115,12 @@ __attribute__((constructor)) static void opalspy_init(void) {
     if(![exe isEqualToString:@"Opal"]) return;
     [NSFileManager.defaultManager createDirectoryAtPath:[@"~/Library/Logs/opal-watch" stringByExpandingTildeInPath]
                             withIntermediateDirectories:YES attributes:nil error:nil];
-    opal_launchquiet_install();
     // In the custom build (bundle id com.amadeus.oc.*) the camera-driver service runs opalcore, which debounces
     // at the source; don't stack a second delay here.
     BOOL customBuild = [NSBundle.mainBundle.bundleIdentifier hasPrefix:@"com.amadeus.oc"];
     opalspy_log([NSString stringWithFormat:@"opalspy loaded into %@ pid %d (custom build: %d)", NSBundle.mainBundle.bundleIdentifier, getpid(), customBuild]);
     if(customBuild) opal_hidepanels_install();
+    if(customBuild) opal_launchsetup_install();
     if(customBuild) dispatch_async(dispatch_get_main_queue(), ^{ opal_firmwareoffer_install(); opal_extguide_install(); });
     NSString *dir = [@"~/Library/Logs/opal-watch" stringByExpandingTildeInPath];
     [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
