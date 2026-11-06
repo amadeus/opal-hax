@@ -43,6 +43,17 @@ Variants: resolution changes restart the pipeline with only ColorCamera `ispScal
 current lens position) changed: 4K none, 1440p 2/3, 1080p 1/2, 720p 1/3, 360p 1/6. Low-power mode is a separate
 12-node pipeline (UVC output, no NNs).
 
+## Camera findings folded in (2026-11-06, from the Mac investigation; details in tools/README.md "Camera profiler")
+
+- Any camera control applying 2+ commands at once makes the camera drop every 8th frame for the session (26.4 instead
+  of 30 fps). `OpalCamera::send` therefore sends camera controls one command per message, 40 ms apart, and the
+  template's initial control is uploaded with an empty command mask (`sendInitialControls` sends the same settings).
+- A freshly booted camera streams by default; `sendInitialControls` sends an explicit STOP_STREAM when streaming isn't
+  wanted (Opal assumed "off" and left idle cameras streaming for hours).
+- The gesture choke was already right here (sent only with the network state), so the hand-pose networks never run
+  with gestures off. 4K raw is USB-bound (~24 fps, 229 ms) and 4K H.264/H.265 on the camera encoder costs CSS 59 % /
+  MSS 72 %: keep 1080p (or 1440p) as the default.
+
 ## Control protocol (decoded from the capture: `smoke/decodectl.cpp`)
 
 - Camera on: `ledCtrl` [1,1,1,1], `gesturesCtrlQueueChokeEmbedded` [1], CameraControl START_STREAM + lens, AE auto,

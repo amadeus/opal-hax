@@ -9,7 +9,11 @@
 //  3. Idle telemetry: chip temperature + LEON CPU via RPC every 30 s while a device is connected (even when
 //     the sensor is stopped), guarded by a lock against device teardown.
 //  4. pipecap.mm: optional capture of the pipeline + control messages sent to the camera (Windows port reference).
+//  5. Gesture choke guard: the hand-pose networks stay off while every gesture is off (see below).
+//  6. fpsfix.mm: camera controls one command per message -> 30 fps instead of 26.4 at 1080p.
+//  7. Explicit STOP_STREAM whenever an "off" is applied (Opal skips it after a reconnect; idle camera kept streaming).
 #import <Foundation/Foundation.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 #include <atomic>
@@ -19,6 +23,7 @@
 #include <thread>
 
 #include "depthai/device/Device.hpp"
+#include "depthai/pipeline/datatype/CameraControl.hpp"
 
 extern "C" int opal_virtualcam_in_use(void);  // cmio_inuse.m
 void opalcore_pipecap_init(void);              // pipecap.mm
@@ -26,6 +31,8 @@ void opalcore_pipecap_init(void);              // pipecap.mm
 // ---------------------------------------------------------------- logging
 static dispatch_queue_t gLogQ;
 static void clog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
+void opalcore_log(NSString *s);  // for the other translation units
+void opalcore_fpsfix_init(void);   // fpsfix.mm
 static void clog(NSString *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -44,6 +51,10 @@ static void clog(NSString *fmt, ...) {
         [h closeFile];
     });
 }
+
+void opalcore_log(NSString *s) { clog(@"%@", s); }
+
+static void sendExplicitStop(void);  // 7. explicit stop (below)
 
 // ---------------------------------------------------------------- 1. streaming debounce
 static const double kOffDelay = 5.0;
@@ -65,6 +76,7 @@ static void tryApplyOff(uint64_t myGen, id target, SEL sel, NSData *st, BOOL rec
     }
     clog(@"[debounce] applying off (in_use=%d)", inUse);
     ((ChangeFn)gOrigChange)(target, sel, kStateOff, st.bytes);
+    sendExplicitStop();
 }
 
 static void hook_changeStreaming(id self, SEL _cmd, NSInteger state, const void *camState) {
@@ -82,6 +94,8 @@ static void hook_changeStreaming(id self, SEL _cmd, NSInteger state, const void 
         tryApplyOff(myGen, target, _cmd, copy, NO);
     });
 }
+
+static void chokeAfterConnect(void);  // 5. gesture choke guard (below)
 
 // ---------------------------------------------------------------- 2+3. device log tap + telemetry
 static std::mutex gDevMutex;           // guards gDev against teardown
@@ -152,6 +166,7 @@ static BOOL hook_connect(id self, SEL _cmd, const void *initialState, BOOL lowPo
         std::lock_guard<std::mutex> lk(gDevMutex);
         gDev = dev;
     }
+    if(ok) chokeAfterConnect();
     startPoller();
     return ok;
 }
@@ -164,6 +179,88 @@ static void hook_stop(id self, SEL _cmd, BOOL lowPower) {
     }
     clog(@"[tap] stopWithLowPowerMode -> device teardown (camera will be reset by Opal)");
     ((StopFn)gOrigStop)(self, _cmd, lowPower);
+}
+
+// ---------------------------------------------------------------- 7. explicit stop
+// Opal applies "off" only when it believes the sensor is on. After a (re)connect it believes "off" while a freshly
+// booted camera streams by default, so an idle camera kept streaming for hours (2026-11-04 10:50-18:39 and
+// 2026-11-06 03:22-10:32, ~58 °C). Whenever the debounce applies an "off", also send STOP_STREAM to the camera
+// ourselves, through the control queue Opal created (a duplicate stop is harmless).
+static void sendExplicitStop(void) {
+    std::lock_guard<std::mutex> lk(gDevMutex);
+    if(!gDev) return;
+    try {
+        if(gDev->isClosed()) return;
+        auto q = gDev->getInputQueue("control");  // the existing queue only; never create one before Opal does
+        dai::CameraControl stop;
+        stop.setStopStreaming();
+        q->send(stop);
+        clog(@"[debounce] explicit STOP_STREAM sent to the camera");
+    } catch(std::exception &e) {
+        clog(@"[debounce] explicit stop not sent: %s", e.what());
+    }
+}
+
+// ---------------------------------------------------------------- 5. gesture choke guard
+// Opal un-chokes the on-camera hand-pose manager Script at every stream start ("CAMERA:: Setting choke on: 1") even
+// when every gesture is off. Un-choked, that Script re-enables the palm-detection ImageManip by itself and the three
+// hand-pose networks run at full rate for nothing: measured with tools/profile on 2026-11-05: LEON CSS 25 -> 45 %,
+// MSS 6 -> 38 % on top of the plain stream (48 % / 65 % with face + segmentation on), the "high load" state of every
+// long call recorded so far, and the face/segmentation networks drop from ~25 to ~15 inferences/s. Opal's own
+// -[OpalCameraInput setGesturesNNActive:] (called with the gesture setting) chokes/un-chokes too, so the guard only
+// has to refuse the un-choke that comes with stream start while gestures are inactive. Disable: OPALCORE_NO_CHOKE_GUARD.
+static std::atomic<bool> gGesturesActive{false};
+static IMP gOrigSetGestures, gOrigSetGesturesXpc, gOrigSetChoke;
+typedef void (*SetBoolFn)(id, SEL, BOOL);
+
+static id gesturesChoke(void) {
+    Class cls = NSClassFromString(@"ChokeQueueManager");
+    SEL sel = NSSelectorFromString(@"sharedInstanceGestures");
+    if(!cls || ![cls respondsToSelector:sel]) return nil;
+    return ((id(*)(id, SEL))objc_msgSend)(cls, sel);
+}
+
+static void hook_setGesturesNNActive(id self, SEL _cmd, BOOL active) {
+    gGesturesActive = active;
+    clog(@"[choke] -[OpalCameraInput setGesturesNNActive:%d]", active);
+    ((SetBoolFn)gOrigSetGestures)(self, _cmd, active);
+}
+
+// the XPC facade has the same selector (it may hold the logic and not forward): track it too
+static void hook_setGesturesNNActiveXpc(id self, SEL _cmd, BOOL active) {
+    gGesturesActive = active;
+    clog(@"[choke] -[OpalCameraDeviceService setGesturesNNActive:%d]", active);
+    ((SetBoolFn)gOrigSetGesturesXpc)(self, _cmd, active);
+}
+
+// A pipeline restart (Opal rebuilds it on every resolution change) brings the manager Script back in its default
+// UN-choked state, and Opal does not send the gesture state again (its cache still says "choke on" from the stream
+// start we refused, so it doesn't even call setChokeToActive:) -> the hand-pose networks ran after every switch to 4K
+// (seen 2026-11-05 23:07: CSS 55 % / MSS 72 % right after the reconnect). So after every connect, choke it ourselves.
+static void chokeAfterConnect(void) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), gDQ, ^{
+        if(gGesturesActive || !gOrigSetChoke || getenv("OPALCORE_NO_CHOKE_GUARD")) return;
+        id choke = gesturesChoke();
+        if(!choke) { clog(@"[choke] after connect: no gestures choke manager"); return; }
+        try {
+            @try {
+                ((SetBoolFn)gOrigSetChoke)(choke, NSSelectorFromString(@"setChokeToActive:"), NO);
+                clog(@"[choke] after connect: hand-pose manager choked (new pipeline starts un-choked)");
+            } @catch(NSException *e) {
+                clog(@"[choke] after connect: failed: %@", e.reason);
+            }
+        } catch(std::exception &e) {
+            clog(@"[choke] after connect: failed: %s", e.what());
+        }
+    });
+}
+
+static void hook_setChokeToActive(id self, SEL _cmd, BOOL active) {
+    if(active && !gGesturesActive && self == gesturesChoke() && !getenv("OPALCORE_NO_CHOKE_GUARD")) {
+        clog(@"[choke] gestures are off -> hand-pose manager stays choked (Opal asked to un-choke it)");
+        active = NO;
+    }
+    ((SetBoolFn)gOrigSetChoke)(self, _cmd, active);
 }
 
 // ---------------------------------------------------------------- install
@@ -185,9 +282,14 @@ __attribute__((constructor)) static void opalcore_init(void) {
     clog(@"---- opalcore loaded into %@ (pid %d), struct %lu bytes", NSProcessInfo.processInfo.processName, getpid(), (unsigned long)sz);
     opalcore_pipecap_init();
     if(getenv("OPALCORE_DISABLE")) { clog(@"[install] disabled by OPALCORE_DISABLE"); return; }
+    opalcore_fpsfix_init();
     gDeviceIvar = class_getInstanceVariable(NSClassFromString(@"DeviceManager"), "_device");
     if(!gDeviceIvar) { clog(@"[install] DeviceManager._device not found; tap disabled"); }
     gOrigChange = swap(@"OpalCameraInput", @"changeStreamingState:withState:", (IMP)hook_changeStreaming);
+    gOrigSetGestures = swap(@"OpalCameraInput", @"setGesturesNNActive:", (IMP)hook_setGesturesNNActive);
+    gOrigSetGesturesXpc = swap(@"OpalCameraDeviceService", @"setGesturesNNActive:", (IMP)hook_setGesturesNNActiveXpc);
+    gOrigSetChoke = swap(@"ChokeQueueManager", @"setChokeToActive:", (IMP)hook_setChokeToActive);
+    if(!gOrigSetGestures || !gOrigSetChoke) clog(@"[install] choke guard NOT installed");
     if(gDeviceIvar) {
         gOrigConnect = swap(@"DeviceManager", @"connectWithInitialState:andLowPowerMode:andResolution:andImxCustomImageTuningPath:", (IMP)hook_connect);
         gOrigStop = swap(@"DeviceManager", @"stopWithLowPowerMode:", (IMP)hook_stop);

@@ -57,6 +57,68 @@ If the user says the camera hung or crashed, go straight to **Hang playbook** be
   no errors. Ended cleanly (client stop → debounce → off; 54.6 °C 30 s later). ~5–9 °C hotter than the night run at the
   same load → environment (room/display heat/sun), not the client app (the camera's work doesn't depend on it).
 
+- **PROFILED 2026-11-05 (`tools/profile/`, see tools/README.md "Camera profiler"): the "high load" state of every long
+  call (CSS 55 % / MSS 70 %, 60–69 °C in the Meet call and the overnight soak) is the HAND-POSE pipeline running with every
+  gesture OFF.** Opal sends `gesturesCtrlQueueChokeEmbedded [1]` ("CAMERA:: Setting choke on: 1") at every stream start;
+  un-choked, the on-camera manager Script re-enables the palm-detection ImageManip by itself and the three hand-pose NNs
+  run at full rate (the host's `skipCurrentImage`/`processInputs=false` don't stop them), and face/segmentation drop from
+  ~25 to ~15 inferences/s. Measured on the camera (1080p, Opal's exact pipeline): plain stream CSS 25 % / MSS 6 %; + face +
+  segmentation 30 / 28 (Opal's intended state with focus lock + bokeh, the "low load" sessions at ~57 °C); + un-choked
+  manager 48 / 65; gestures fully on 55 / 73. The app telemetry history shows both states (telemetry.log: css/mss 29/28
+  for hours on 10-31 and 11-04 vs 55/70 on 11-01, 11-02; the lo sessions had a choke 0 land after streaming started).
+  Fix (2026-11-05, in opalcore.mm "gesture choke guard"): `-[ChokeQueueManager setChokeToActive:YES]` on the gestures
+  choke singleton is turned into NO unless `setGesturesNNActive:YES` was seen (hooked on OpalCameraInput and the XPC
+  facade), AND the manager is choked by opalcore itself 0.5 s after every camera connect: a pipeline restart (every
+  resolution change) brings the Script back un-choked by default and Opal does not resend the gesture state (its cache
+  still says "on", so it doesn't even call setChokeToActive: — seen 2026-11-05 23:07 after a switch to 4K: 55 % / 72 %
+  again). Log lines `[choke] …` in camera.log; disable with env `OPALCORE_NO_CHOKE_GUARD`. Built, notarized and packaged
+  as `Opal-0.26-custom.<ts>.pkg.zip` (repo root); the 2026-11-05 22:54 package (stream-start guard only) was installed by
+  the owner 22:57 (then needed the extension restart described under installer notes); 2026-11-06 10:4x adds the
+  connect-time choke, the 30 fps fix, the explicit stop and the installer shim fix.
+- **4K output is USB-bound**: the camera links at 5 Gb/s (Myriad X USB 3.0; the dock hub is 10 Gb/s, irrelevant) and sends
+  raw NV12: 12.5 MB/frame → ~24 fps delivered to the Mac (measured; 1080p: 26–30), ~40 ms per frame in transfer = the
+  "laggy preview" at 4K. Camera load at 4K with face + seg: CSS 41 % / MSS 40 % (1080p: 30 / 28). Meeting apps get
+  1080p from the virtual camera anyway; 4K only helps Opal's digital zoom. Recommend 1080p.
+- **1080p was delivered at 26.4 fps, not 30 — FOUND AND FIXED (2026-11-06, `tools/opalcore/fpsfix.mm`)**: the sensor runs
+  30.1 (4K readout; enum THE_4_K=2 in this depthai revision: THE_1080_P=0, THE_1200_P=1, THE_4_K=2, THE_5_MP=3,
+  THE_12_MP=4) but the camera drops every 8th frame (sequence gaps, 66 ms holes) whenever a camera control message
+  applied TWO OR MORE 3A commands at once — Opal's stream start carries 8 (START_STREAM + MOVE_LENS + AE_AUTO + AWB +
+  SCENE + EXP_COMP + CONTROL_MODE + SATURATION) and its pipeline's initial control 8 more; the drop then lasts for the
+  session. One command per message, 40 ms apart, keeps 30.0 fps with no gaps (back-to-back singles don't). Bisected on
+  the UVC path (the flashed program, single commands, does 30.2 distinct frames/s) and confirmed over XLink
+  (`profile … init.cmdMask=0 bare=1 seq=ae,awb,scene,exp,ctrl,sat` → 30.4, 0 gaps). Not the cause: ISP throughput,
+  USB, XLink streams/queues/chunking, rotation, preview, video size, tuning blob, AE in the dark, AF mode. Fix in
+  opalcore: every control message on Opal's "control" queue with 2+ commands is sent as single commands 40 ms apart,
+  synchronously on Opal's thread (both DataInputQueue::send overloads hooked via the service's GOT; only the
+  `const ADatatype&` one is used), and the ColorCamera initial control's mask is cleared at startPipeline and replayed
+  the same way before Opal's first control message — through Opal's OWN RawCameraControl object (a copy made with our
+  headers serialized wrongly → "Raw C++ exception" in the service → teardown loop; the service also throws when our
+  code creates the "control" queue before Opal does). Verified through the virtual camera: 29.9 distinct fps over 60 s
+  (was 26.4), CSS 37 % / MSS 36 % (was 32 / 30: more frames). Flag files in ~/Library/Logs/opal-watch for experiments:
+  `fpsfix-noreplay`, `fpsfix-replay-subset`; env `OPALCORE_NO_FPS_FIX` disables. 1440p: 33 / 31 %, 62 ms (fine).
+  4K H.264/H.265 on the camera encoder: 26.4 fps, 90–96 ms, 6 MB/s, but CSS 59 % / MSS 72 % — rejected. Raw 4K: 23.9 fps,
+  229 ms (USB 3.0 5 Gb/s link).
+- **Idle camera kept streaming after a (re)connect — FIXED (2026-11-06, opalcore "explicit stop")**: Opal applies "off"
+  only when it believes the sensor is on; after a connect it believes "off" while a freshly booted camera streams by
+  default (the pipeline's initial control has no stop), so with nobody using it the sensor ran for hours at ~58 °C
+  (2026-11-04 10:50→18:39 after the popover closed... and 2026-11-06 03:22→10:32 after the night's last restore; the
+  "lo" 29/28 % sessions in telemetry.log are this). Now whenever the debounce applies an off, opalcore also sends
+  STOP_STREAM itself through Opal's control queue (`[debounce] explicit STOP_STREAM sent`); verified: fresh connect →
+  idle 6 % / 0 % within 30 s. Opal's own quit does not stop the sensor either (teardown resets the camera instead).
+- **Host-boot gotcha (2026-11-06)**: a camera host-booted in UVC mode (BoardConfig.uvcEnable) by our public-lib tools
+  is left in its bootloader, and the next UVC-mode boot from that state (or any repeat in a series) crashes the firmware
+  1.4 s after start (the old MSS trap); booting from the flashed program (f63d, what a vendor UVC reset of Opal's f63b
+  firmware leaves) works. tools/profile runs that need UVC mode relaunch+quit Opal between runs for that reason.
+- **Crash bisect clue (the old MSS trap)**: the app template with only ColorCamera + XLinkOut rgb (+ audio) crashes the
+  firmware 1.4 s after start (`Fatal error on MSS CPU: trap: 00`), while removing any ONE of the groups {config XLinkIn,
+  audio, LED Script+XLinkIn, SystemLogger+XLinkOut, control XLinkIn, all NN branches} does not. One of 1,2,7,8,31,32
+  keeps it alive; not bisected further.
+- Profiling limits: the firmware's RPCs are only CPU %, 4 chip temperatures (CSS/MSS/UPA/DSS, within 1 °C of each other),
+  DDR/CMX/heap and log level (RTEMS' per-thread CPU report is compiled in but unreachable), so component costs come from
+  ablation (`profile … face=0 seg=0 choke=1 gate=face:3 sensor=1080p rm=…`). The IMX378 1080p (2×2 binned) sensor mode
+  works with Opal's firmware (same FOV as 4K + ISP ½, 30 fps to the host instead of 26, DDR 59 vs 81 MB, slower warm-up)
+  but the picture is visibly softer at night (ISO 2400, sample frames in ~/Library/Logs/opal-watch/profile/frame-*.png),
+  so it is not used.
 - Thermal (host-booted, 4K30, `tools/thermal_run2.log`): streaming chip temp 46.8→49.4 °C after 5 min
   and rising; sensor stopped 42.4→37.3 °C and falling; CPU 27 % → 2 %.
 - Opal app only *logs* (Sentry breadcrumb) avg chip temp > 65 °C ("Painful temperature!") and fps < 30.
@@ -187,7 +249,11 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   staples, spctl check). The development identity/profile path still works without `--developer-id` (dev cert
   expires 2027-05-09, dev profile only covers this Mac). `EXT_BUNDLE_VERSION` (now 11) sets the camera extension's
   CFBundleVersion: macOS only replaces an installed system extension when that changes — bump it whenever the
-  extension must be re-signed. Opal's own Setup app declines replacement (OSSystemExtensionError 11) unless run with
+  extension must be re-signed. **Custom-to-custom upgrades must NOT restart the root shim daemon** (fixed in
+  `pkg/preinstall` 2026-11-05): the running camera extension is registered with the old shim process, a new one has no
+  endpoint for it, and Opal shows "Restart to finish update" (Setup log "Was unable to retrieve endpoint from shim …
+  requires a reboot") until a reboot or the extension process is restarted. Seen on the 11-01 and 11-05 upgrades.
+  Opal's own Setup app declines replacement (OSSystemExtensionError 11) unless run with
   env **`ForceReinstall=1`** (`open -n --env ForceReinstall=1 ".../Opal Camera Setup.app"`). After a replacement
   the new extension does NOT start until a reboot (launchd "Submit job failed … Operation already in progress"
   while the old one terminates); Opal shows "Restart to finish update" and the camera is unavailable until then.

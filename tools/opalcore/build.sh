@@ -12,11 +12,13 @@ clang++ -arch arm64 -std=c++14 -fobjc-arc -DXLINK_USE_MX_ID_NAME -O1 -w \
   -Wno-error=missing-template-arg-list-after-template-kw $I -c opalcore.mm -o opalcore.o
 clang++ -arch arm64 -std=c++14 -fobjc-arc -DXLINK_USE_MX_ID_NAME -O1 -w \
   -Wno-error=missing-template-arg-list-after-template-kw $I -c pipecap.mm -o pipecap.o
-clang++ -arch arm64 -dynamiclib -fobjc-arc opalcore.o pipecap.o cmio_inuse.o \
+clang++ -arch arm64 -std=c++14 -fobjc-arc -DXLINK_USE_MX_ID_NAME -O1 -w \
+  -Wno-error=missing-template-arg-list-after-template-kw $I -c fpsfix.mm -o fpsfix.o
+clang++ -arch arm64 -dynamiclib -fobjc-arc opalcore.o pipecap.o fpsfix.o cmio_inuse.o \
   -framework Foundation -framework CoreMediaIO -L"$FW" -ldepthai-core \
   -install_name @executable_path/../Frameworks/opalcore.dylib \
   -Wl,-rpath,@loader_path/../../../../Frameworks \
   -o opalcore.dylib
-rm -f cmio_inuse.o opalcore.o pipecap.o
+rm -f cmio_inuse.o opalcore.o pipecap.o fpsfix.o
 codesign -s - -f opalcore.dylib
 echo built opalcore.dylib
