@@ -113,7 +113,7 @@ dai::Pipeline PipelineTemplate::build(const PipelineOptions& opt) const {
     p.setOpenVINOVersion(dai::OpenVINO::VERSION_2021_4);
     p.setXLinkChunkSize(opt.xlinkChunkSize >= 0 ? opt.xlinkChunkSize : g["xlinkChunkSize"].get<int>());
     p.setImageManipCmxSizeAdjust(g["imageManipAdjustCmxSize"].get<int>());
-    if(tmpl_["assets"].contains("/pipeline/camTuning")) {
+    if(!opt.noTuningBlob && tmpl_["assets"].contains("/pipeline/camTuning")) {
         // the public API only takes a path for the sensor tuning blob
         p.setCameraTuningBlobPath(dir_ + "/" + tmpl_["assets"]["/pipeline/camTuning"]["file"].get<std::string>());
     }
@@ -140,8 +140,22 @@ dai::Pipeline PipelineTemplate::build(const PipelineOptions& opt) const {
             resolutionSize(opt.resolution, w, h);
             props["videoWidth"] = w;
             props["videoHeight"] = h;
+            if(opt.sensorResolution >= 0) {
+                props["resolution"] = opt.sensorResolution;
+                props["ispScale"] = {{"horizNumerator", 0}, {"horizDenominator", 0}, {"vertNumerator", 0}, {"vertDenominator", 0}};
+            }
+            if(opt.fps > 0) props["fps"] = opt.fps;
+            if(opt.orientation >= 0) props["imageOrientation"] = opt.orientation;
+            if(opt.previewWidth > 0 && opt.previewHeight > 0) {
+                props["previewWidth"] = opt.previewWidth;
+                props["previewHeight"] = opt.previewHeight;
+            }
             if(opt.lensPosition >= 0) props["initialControl"]["lensPosition"] = opt.lensPosition;
             if(opt.antiBanding >= 0) props["initialControl"]["antiBandingMode"] = opt.antiBanding;
+            // Apply NOTHING at pipeline start: Opal's template applies 8 commands at once, and any camera control
+            // applying 2+ commands makes the camera drop every 8th frame for the session (26.4 instead of 30 fps,
+            // measured 2026-11-06). OpalCamera::sendInitialControls sends the same settings one command per message.
+            props["initialControl"]["cmdMask"] = 0;
         }
         auto node = createNode(p, name, props);
         if(node->id != id) throw std::runtime_error("pipeline template: node id mismatch");

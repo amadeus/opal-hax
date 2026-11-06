@@ -23,6 +23,11 @@ for f in /Library/LaunchAgents/com.opalcamera.*.plist /Library/LaunchAgents/com.
 done
 for f in /Library/LaunchDaemons/com.opalcamera.*.plist /Library/LaunchDaemons/com.amadeus.oc.*.plist; do
   [ -e "$f" ] || continue
+  # Our shim daemon stays running across a custom-to-custom upgrade: the running camera extension is registered with
+  # THAT process, and a new shim process has no endpoint for it, so Opal would show "Restart to finish update" until a
+  # reboot (seen 2026-11-01 and 2026-11-05). The shim binary is Opal's own and identical in every custom build; the
+  # old process keeps running from the replaced bundle until the next reboot, when launchd starts the new copy.
+  case "$f" in */com.amadeus.oc.cameraExtensionShim.plist) echo "keeping the running shim daemon"; continue;; esac
   launchctl bootout system "$f" 2>/dev/null
   case "$f" in */com.opalcamera.*) rm -f "$f"; echo "removed $f";; esac
 done

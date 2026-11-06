@@ -1,6 +1,7 @@
 #include "opal_camera.hpp"
 
 #include <chrono>
+#include <thread>
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -72,6 +73,35 @@ void OpalCamera::send(const std::string& stream, const std::shared_ptr<dai::ADat
     auto it = in_.find(stream);
     if(it == in_.end()) return;
     try {
+        // A camera control applying 2+ commands at once makes the camera drop every 8th frame for the rest of the
+        // session (26.4 instead of 30 fps; measured on the C1 2026-11-06, see tools/README.md "frame rate"). One
+        // command per message, 40 ms apart, keeps 30 fps (back-to-back singles do not). So split them here.
+        auto cc = std::dynamic_pointer_cast<dai::CameraControl>(msg);
+        if(stream == "control" && cc) {
+            // the gap is kept between ALL consecutive control sends, not only within one message's commands
+            auto spaced = [&]() {
+                auto since = std::chrono::steady_clock::now() - lastControlSend_;
+                if(since < std::chrono::milliseconds(40)) std::this_thread::sleep_for(std::chrono::milliseconds(40) - since);
+                it->second->send(msg);
+                lastControlSend_ = std::chrono::steady_clock::now();
+            };
+            auto raw = std::static_pointer_cast<dai::RawCameraControl>(cc->getRaw());
+            uint64_t mask = raw->cmdMask;
+            int n = 0;
+            for(uint64_t m = mask; m; m >>= 1) n += (int)(m & 1);
+            if(n >= 2) {
+                log("camera control with " + std::to_string(n) + " commands (mask 0x" + [&] { char b[32]; snprintf(b, sizeof b, "%llx", (unsigned long long)mask); return std::string(b); }() + ") sent as single commands");
+                for(int bit = 0; bit < 64; bit++) {
+                    if(!(mask & (1ull << bit))) continue;
+                    raw->cmdMask = 1ull << bit;
+                    spaced();
+                }
+                raw->cmdMask = mask;
+            } else {
+                spaced();
+            }
+            return;
+        }
         it->second->send(msg);
     } catch(std::exception& e) {
         log(std::string("send ") + stream + " failed: " + e.what());
@@ -142,6 +172,13 @@ void OpalCamera::sendInitialControls() {
     lens->setAutoFocusMode(dai::CameraControl::AutoFocusMode::OFF);
     send("control", lens);
     sendControls(settings_, settings_, true);
+    // A freshly booted camera streams by default; Opal assumed "off" and left idle cameras streaming for hours.
+    // Stop it explicitly unless streaming is wanted (the loop sends the start right after).
+    if(!wantStreaming_) {
+        auto stop = std::make_shared<dai::CameraControl>();
+        stop->setStopStreaming();
+        send("control", stop);
+    }
 }
 
 void OpalCamera::sendNetworks() {

@@ -17,6 +17,12 @@ struct PipelineOptions {
     int lensPosition = -1;  // initial manual lens position (0..255); -1 keeps the template's
     int antiBanding = -1;   // dai::RawCameraControl::AntiBandingMode; -1 keeps the template's
     int xlinkChunkSize = -1;  // -1 keeps the template's (Opal: 0 = no chunking, one USB transfer per message)
+    // experiments (tools/profile): -1 / <= 0 keeps the template's
+    int sensorResolution = -1;  // dai::ColorCameraProperties::SensorResolution; when set, ispScale is cleared
+    float fps = -1;
+    int previewWidth = -1, previewHeight = -1;
+    int orientation = -1;  // CameraImageOrientation
+    bool noTuningBlob = false;  // experiment: firmware default IMX378 tuning instead of Opal's
 };
 
 class PipelineTemplate {
@@ -27,6 +33,8 @@ class PipelineTemplate {
     // names of the template's XLinkOut / XLinkIn streams
     std::vector<std::string> outputStreams() const;
     std::vector<std::string> inputStreams() const;
+    // the template itself, for experiments that edit nodes/connections/assets before build()
+    nlohmann::json& json() { return tmpl_; }
 
    private:
     std::string dir_;

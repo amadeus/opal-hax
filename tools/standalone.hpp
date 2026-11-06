@@ -66,13 +66,26 @@ inline dai::Pipeline buildStandalonePipeline(const std::string& tuningBlob, bool
     auto cam = p.create<dai::node::ColorCamera>();
     cam->setBoardSocket(dai::CameraBoardSocket::RGB);
     cam->setInterleaved(false);
-    cam->setPreviewSize(1920, 1080);
+    // experiment knobs (tools/profile bisect of the app's camera settings; unset = the flashed program's values)
+    const char* e;
+    int pw = 1920, ph = 1080;
+    if((e = getenv("OPAL_PREVIEW"))) sscanf(e, "%dx%d", &pw, &ph);
+    cam->setPreviewSize(pw, ph);
     cam->setImageOrientation(dai::CameraImageOrientation::ROTATE_180_DEG);
-    cam->initialControl.setAutoFocusMode(dai::CameraControl::AutoFocusMode::AUTO);
+    if((e = getenv("OPAL_AF")) && std::string(e) == "off") {
+        cam->initialControl.setManualFocus(126);
+    } else {
+        cam->initialControl.setAutoFocusMode(dai::CameraControl::AutoFocusMode::AUTO);
+    }
+    if((e = getenv("OPAL_AB"))) antiBanding = (dai::CameraControl::AntiBandingMode)atoi(e);
     cam->initialControl.setAntiBandingMode(antiBanding);
+    if((e = getenv("OPAL_SCENE"))) cam->initialControl.setSceneMode((dai::CameraControl::SceneMode)atoi(e));
+    // (control mode has no setter in Opal's header revision; left out)
     if(!tuningBlob.empty()) p.setCameraTuningBlobPath(tuningBlob);
     cam->setResolution(dai::ColorCameraProperties::SensorResolution::THE_4_K);
     cam->setIspScale(1, 2);
+    if((e = getenv("OPAL_VIDEO"))) { int vw = 0, vh = 0; sscanf(e, "%dx%d", &vw, &vh); cam->setVideoSize(vw, vh); }
+    if((e = getenv("OPAL_FPS"))) cam->setFps((float)atof(e));
 
     auto uvc = p.create<dai::node::UVC>();
     cam->video.link(uvc->input);

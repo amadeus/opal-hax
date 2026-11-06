@@ -60,7 +60,11 @@ cat > /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.pl
 PLIST
 chown root:wheel /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.plist
 chmod 644 /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.plist
-launchctl bootstrap system /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist
+if launchctl print system/com.amadeus.oc.cameraExtensionShim >/dev/null 2>&1; then
+  echo "shim daemon already running (kept across the upgrade)"
+else
+  launchctl bootstrap system /Library/LaunchDaemons/com.amadeus.oc.cameraExtensionShim.plist
+fi
 launchctl bootstrap "gui/$USER_ID" /Library/LaunchAgents/com.amadeus.oc.OpalCamera.startOnUsbPlugged.agent.plist
 
 # 3. settings: none are shipped. The custom build imports the original app's settings on its first launch if

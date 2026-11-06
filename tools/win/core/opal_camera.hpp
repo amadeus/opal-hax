@@ -136,6 +136,7 @@ class OpalCamera {
     bool restartRequested_ = false;
     bool wantStreaming_ = false, streamingApplied_ = false;
     double offRequestedAt_ = -1;
+    std::chrono::steady_clock::time_point lastControlSend_{};  // camera controls are sent at least 40 ms apart
     double ledResendAt_ = -1;  // "light off" sent again 1.5 s and 4 s after the sensor stops
     int ledResends_ = 0;
     std::atomic<int> framesAfterOff_{0};
