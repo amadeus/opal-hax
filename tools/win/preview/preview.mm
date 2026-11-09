@@ -114,6 +114,8 @@ int main(int argc, char** argv) {
             host.fps = 30;
             host.vcamInUse = sh.tab == 4;
             host.chipTempC = 58.4f, host.cssCpu = 0.55f, host.mssCpu = 0.70f;
+            host.telemetryFresh = true, host.ddrUsedMB = 81, host.ddrTotalMB = 337;
+            host.frameWidth = 1920, host.frameHeight = 1080, host.pcCpu = 14;
             host.histogram = hist;
             host.tab = sh.tab;
             fluent::setScale(scale);

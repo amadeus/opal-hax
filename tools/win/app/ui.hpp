@@ -19,6 +19,11 @@ struct UiHost {
     std::string vcamError, effectsError;
     bool vcamInUse = false, cameraStreaming = false;
     float fps = 0, chipTempC = 0, cssCpu = 0, mssCpu = 0;
+    // status readout over the preview (like the Mac app's): telemetry younger than 5 s, frame size, Opal.exe's CPU
+    bool telemetryFresh = false;
+    float ddrUsedMB = 0, ddrTotalMB = 0;
+    int frameWidth = 0, frameHeight = 0;
+    float pcCpu = -1;  // % of one core, -1 = unknown
     const float* histogram = nullptr;  // 64 bins
     int lastLens = 126;
     float wheelLines = 3;  // Windows' "lines to scroll" setting

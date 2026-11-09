@@ -6,6 +6,7 @@
 #import <objc/runtime.h>
 
 void opal_debounce_install(void);
+void opal_statushud_telemetry(const float *v);  // statushud.m
 static IMP gOrigSetStringValue;
 static NSMutableDictionary<NSString *, NSDate *> *gLast;
 static NSFileHandle *gOut;
@@ -49,6 +50,7 @@ static void spy_newLogData(id self, SEL _cmd, const float *p) {
     struct { float v[11]; } sv;
     memcpy(sv.v, p, sizeof sv.v);
     if(v) ((void (*)(id, SEL, const float *))v.pointerValue)(self, _cmd, p);
+    opal_statushud_telemetry(sv.v);
     dispatch_async(gQ, ^{
         NSDate *now = [NSDate date];
         if(gLastLogData && [now timeIntervalSinceDate:gLastLogData] < 5.0) return;
@@ -89,6 +91,7 @@ static void hookLogFeed(void) {
 
 void opal_hidepanels_install(void);
 void opal_launchsetup_install(void);
+void opal_statushud_install(void);
 void opal_firmwareoffer_install(void);
 void opal_extguide_install(void);
 
@@ -121,6 +124,7 @@ __attribute__((constructor)) static void opalspy_init(void) {
     opalspy_log([NSString stringWithFormat:@"opalspy loaded into %@ pid %d (custom build: %d)", NSBundle.mainBundle.bundleIdentifier, getpid(), customBuild]);
     if(customBuild) opal_hidepanels_install();
     if(customBuild) opal_launchsetup_install();
+    if(customBuild) opal_statushud_install();
     if(customBuild) dispatch_async(dispatch_get_main_queue(), ^{ opal_firmwareoffer_install(); opal_extguide_install(); });
     NSString *dir = [@"~/Library/Logs/opal-watch" stringByExpandingTildeInPath];
     [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];

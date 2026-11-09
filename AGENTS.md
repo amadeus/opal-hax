@@ -240,6 +240,13 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   and shows it. Opal sets `popover.animates = false` (instant close); a `CODE_PATCHES` entry turns animation back on, so
   the popover is still closing when the action arrives and the toggle closes it (reproduced with a stand-in app).
   Replaces opalspy's old launchquiet hook (time-window blocking).
+  **Status readout** (owner, 2026-11-06; opalspy `statushud.m`): while the popover is open, a small label over the
+  bottom-left of the live preview shows chip °C, camera CPU CSS/MSS %, received fps + frame height, and the Mac CPU of
+  Opal's processes (% of one core); tooltip adds camera DDR/CMX, latency, meeting-app use. Sources: the telemetry feed
+  (`newLogDataRecived:`, already hooked for telemetry.log) and the per-frame callback `-[DeviceXPCConnectionHelperService
+  imageStreamResponseWithYUVSurface:andDepthSurface:andDetection:andDeviceInfo:andVideoLatency:andAudioLatency:]` (IOSurface
+  + 2 structs passed by pointer). The preview is found as the largest view drawing a CAMetalLayer; the popover's view
+  tree is logged once to opalspy.log. Orange ≥ 65 °C, red ≥ 75 °C. Disable: env `OPALSPY_NO_STATUS_HUD=1`.
   Kept: camera-extension "update" logic (CamEx requiresUpdate) — that re-activates our own extension, it's not
   app updating. `update-custom-opal.sh` now keeps the replaced build in `previous-custom/<ts>/`.
 - **Release builds = Developer ID + notarized (2026-11-01)**, so they run on any Mac and outlive the certificate:

@@ -110,16 +110,17 @@ bool loadFonts(const char* regularTtf, const char* semiboldTtf, float emFactor) 
     F.body = io.Fonts->AddFontFromFileTTF(regularTtf, dp(14) * emFactor, &cfg, textRanges);
     F.strong = io.Fonts->AddFontFromFileTTF(semiboldTtf, dp(14) * emFactor, &cfg, textRanges);
     F.caption = io.Fonts->AddFontFromFileTTF(regularTtf, dp(12) * emFactor, &cfg, textRanges);
+    F.captionStrong = io.Fonts->AddFontFromFileTTF(semiboldTtf, dp(12) * emFactor, &cfg, textRanges);
     ImFontConfig ic;
     ic.FontDataOwnedByAtlas = false;
     ic.PixelSnapH = true;
     F.icons = io.Fonts->AddFontFromMemoryTTF((void*)kFluentIconsTtf, (int)sizeof kFluentIconsTtf, dp(20), &ic, iconRanges);
     F.iconsSmall = io.Fonts->AddFontFromMemoryTTF((void*)kFluentIconsTtf, (int)sizeof kFluentIconsTtf, dp(14), &ic, iconRanges);
-    if(!F.body || !F.strong || !F.caption) {
+    if(!F.body || !F.strong || !F.caption || !F.captionStrong) {
         io.Fonts->Clear();
         ImFontConfig d;
         d.SizePixels = dp(14) * 1.2f;
-        F.body = F.strong = F.caption = io.Fonts->AddFontDefault(&d);
+        F.body = F.strong = F.caption = F.captionStrong = io.Fonts->AddFontDefault(&d);
         F.icons = io.Fonts->AddFontFromMemoryTTF((void*)kFluentIconsTtf, (int)sizeof kFluentIconsTtf, dp(20), &ic, iconRanges);
         F.iconsSmall = io.Fonts->AddFontFromMemoryTTF((void*)kFluentIconsTtf, (int)sizeof kFluentIconsTtf, dp(14), &ic, iconRanges);
     }

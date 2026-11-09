@@ -328,6 +328,65 @@ void settingsTab(Ctx& c) {
     if(Button("Quit Opal") && c.h.quit) c.h.quit();
 }
 
+// Status readout over the bottom-left of the live preview (same content and look as the Mac app's statushud.m):
+// chip temperature, camera CPUs (CSS / MSS), received fps + frame height, Opal.exe's CPU. Padding is measured from the
+// glyphs (cap height of "H", ink of the first/last character) so the gap is the same on all four sides.
+void statusReadout(const UiHost& h, ImDrawList* dl, const ImRect& pr) {
+    char temp[32], cpu[48], vid[48], pc[32], text[192];
+    if(h.telemetryFresh) {
+        snprintf(temp, sizeof temp, "%.1f \xc2\xb0" "C", h.chipTempC);
+        snprintf(cpu, sizeof cpu, "CPU %.0f/%.0f %%", h.cssCpu * 100, h.mssCpu * 100);
+    } else {
+        snprintf(temp, sizeof temp, "\xe2\x80\x93 \xc2\xb0" "C");
+        snprintf(cpu, sizeof cpu, "CPU \xe2\x80\x93");
+    }
+    snprintf(vid, sizeof vid, "%.0f fps %dp", h.fps, h.frameHeight);
+    if(h.pcCpu >= 0) snprintf(pc, sizeof pc, "  \xc2\xb7  PC %.0f %%", h.pcCpu); else pc[0] = 0;
+    snprintf(text, sizeof text, "%s  \xc2\xb7  %s  \xc2\xb7  %s%s", temp, cpu, vid, pc);
+
+    ImFont* f = F.captionStrong ? F.captionStrong : F.caption;
+    float fs = f->FontSize;
+    const ImFontGlyph* H = f->FindGlyph('H');
+    float capTop = H ? H->Y0 : fs * 0.25f, baseline = H ? H->Y1 : fs * 0.8f;  // from the line's top
+    ImVec2 ts = f->CalcTextSizeA(fs, FLT_MAX, 0, text);
+    // ink: skip the first glyph's left bearing and the last glyph's right bearing
+    const ImFontGlyph* g0 = f->FindGlyph((ImWchar)text[0]);
+    const ImFontGlyph* g1 = f->FindGlyph('%');
+    float left = g0 ? g0->X0 : 0;
+    float right = pc[0] && g1 ? g1->AdvanceX - g1->X1 : 0;
+    float inkW = ts.x - left - right;
+    float padX = dp(8), padY = dp(6), inset = dp(8);
+    float w = std::round(inkW + 2 * padX), hgt = std::round(baseline - capTop + 2 * padY);
+    ImVec2 a(std::round(pr.Min.x + inset), std::round(pr.Max.y - inset - hgt));
+    ImVec2 b(a.x + w, a.y + hgt);
+    dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 115), std::min(dp(6), hgt / 2));
+    ImU32 col = IM_COL32(255, 255, 255, 235);
+    if(h.telemetryFresh && h.chipTempC >= 75) col = IM_COL32(255, 69, 58, 255);
+    else if(h.telemetryFresh && h.chipTempC >= 65) col = IM_COL32(255, 159, 10, 255);
+    dl->AddText(f, fs, ImVec2(std::round(a.x + padX - left), std::round(a.y + padY - capTop)), col, text);
+
+    if(ImGui::IsMouseHoveringRect(a, b)) {
+        char tip[512];
+        char pcs[32];
+        if(h.pcCpu >= 0) snprintf(pcs, sizeof pcs, "%.0f %%", h.pcCpu); else snprintf(pcs, sizeof pcs, "\xe2\x80\x93");
+        if(h.telemetryFresh)
+            snprintf(tip, sizeof tip,
+                     "Camera chip %.1f \xc2\xb0" "C (65 \xc2\xb0" "C is when Opal starts warning)\n"
+                     "Camera CPUs: CSS %.0f %%, MSS %.0f %%\n"
+                     "Camera memory: DDR %.0f / %.0f MB\n",
+                     h.chipTempC, h.cssCpu * 100, h.mssCpu * 100, h.ddrUsedMB, h.ddrTotalMB);
+        else
+            snprintf(tip, sizeof tip, "Camera chip: no reading yet\n");
+        size_t n = strlen(tip);
+        snprintf(tip + n, sizeof tip - n,
+                 "Video: %.1f fps, %d\xc3\x97%d\n"
+                 "Opal on this PC: %s of one core\n"
+                 "Opal C1 in a meeting app: %s",
+                 h.fps, h.frameWidth, h.frameHeight, pcs, h.vcamInUse ? "yes" : "no");
+        ImGui::SetTooltip("%s", tip);
+    }
+}
+
 }  // namespace
 
 void drawUI(UiHost& h) {
@@ -350,6 +409,7 @@ void drawUI(UiHost& h) {
     ImRect pr(o, ImVec2(o.x + W, o.y + ph));
     if(h.preview) {
         dl->AddImage(h.preview, pr.Min, pr.Max);
+        statusReadout(h, dl, pr);
     } else {
         dl->AddRectFilled(pr.Min, pr.Max, col.previewBg);
         ImVec2 cc = pr.GetCenter();

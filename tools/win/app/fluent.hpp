@@ -21,7 +21,7 @@ struct Colors {
 };
 
 struct Fonts {
-    ImFont *body = nullptr, *strong = nullptr, *caption = nullptr, *icons = nullptr, *iconsSmall = nullptr;
+    ImFont *body = nullptr, *strong = nullptr, *caption = nullptr, *captionStrong = nullptr, *icons = nullptr, *iconsSmall = nullptr;
 };
 
 // theme: accentDark is the accent used on dark backgrounds (Windows' "AccentLight2"), accentLight the one on light

@@ -353,6 +353,7 @@ static void processFrame(App& app) {
     }
     app.lastFrameTime = t;
     app.lastLens = frame->lensPosition;
+    app.frameWidth = frame->width, app.frameHeight = frame->height;
     auto& s = app.settings;
 
     // gestures
@@ -557,6 +558,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdLine, int) {
     app.camera->onTelemetry = [](const Telemetry& t) {
         std::lock_guard<std::mutex> lk(gApp.mu);
         gApp.telemetry = t;
+        gApp.telemetryAt = nowSec();
     };
     applySettings(app);
     app.camera->setXLinkChunkSize(std::max(0, app.settings.usbTransferKB) * 1024);
@@ -644,7 +646,25 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdLine, int) {
             {
                 std::lock_guard<std::mutex> lk(app.mu);
                 host.chipTempC = app.telemetry.chipTempC, host.cssCpu = app.telemetry.cssCpu, host.mssCpu = app.telemetry.mssCpu;
+                host.ddrUsedMB = app.telemetry.ddrUsed / 1048576.f, host.ddrTotalMB = app.telemetry.ddrTotal / 1048576.f;
+                host.telemetryFresh = app.telemetry.chipTempC > 0 && nowSec() - app.telemetryAt < 5;
             }
+            // Opal.exe's CPU time over the last second, as % of one core (Task Manager shows % of all cores)
+            {
+                double now = nowSec();
+                if(now - app.cpuSampleAt >= 1.0) {
+                    FILETIME cr, ex, k, u;
+                    if(GetProcessTimes(GetCurrentProcess(), &cr, &ex, &k, &u)) {
+                        unsigned long long t = (((unsigned long long)k.dwHighDateTime << 32) | k.dwLowDateTime) +
+                                               (((unsigned long long)u.dwHighDateTime << 32) | u.dwLowDateTime);  // 100 ns units
+                        if(app.cpuSampleAt > 0) app.pcCpu = (float)((t - app.cpuSampleTime) / 1e7 / (now - app.cpuSampleAt) * 100);
+                        app.cpuSampleTime = t;
+                        app.cpuSampleAt = now;
+                    }
+                }
+            }
+            host.pcCpu = app.pcCpu;
+            host.frameWidth = app.frameWidth, host.frameHeight = app.frameHeight;
             host.histogram = app.histogram;
             host.lastLens = app.lastLens;
             UINT lines = 3;

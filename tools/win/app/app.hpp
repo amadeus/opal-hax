@@ -42,6 +42,7 @@ struct App {
     Hand hand;
     bool handNew = false;
     Telemetry telemetry;
+    double telemetryAt = -10;
     std::deque<std::string> log;
     HANDLE frameEvent = nullptr;
 
@@ -52,6 +53,10 @@ struct App {
     double lastFrameTime = 0;
     int lastLens = 126;
     float fps = 0;
+    int frameWidth = 0, frameHeight = 0;
+    float pcCpu = -1;  // Opal.exe CPU, % of one core (status readout)
+    double cpuSampleAt = 0;
+    unsigned long long cpuSampleTime = 0;
     float histogram[64] = {};
 
     // window / graphics

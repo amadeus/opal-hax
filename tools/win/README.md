@@ -100,7 +100,8 @@ current lens position) changed: 4K none, 1440p 2/3, 1080p 1/2, 720p 1/3, 360p 1/
   overlay, -> NV12 BT.709 video range for Windows apps), `overlay` (Direct2D: text, logo, gesture drawing, peace
   burst), `framing` (zoom, face lock), `gestures` (draw / peace / pinch from hand landmarks by finger geometry;
   Opal uses a random-forest model on the Mac), `vcam_producer`, `ui` (popover: Camera, Effects, Manual, Audio,
-  Settings, footer with status), `fluent` (Windows 11 / WinUI 3 controls drawn with Dear ImGui to
+  Settings, footer with status; a status readout over the live preview like the Mac app's statushud: chip °C, camera
+  CPU CSS/MSS %, received fps + frame height, Opal.exe CPU as % of one core, details on hover; orange ≥ 65 °C, red ≥ 75 °C), `fluent` (Windows 11 / WinUI 3 controls drawn with Dear ImGui to
   WinUI's metrics and colour tokens: ToggleSwitch, Slider, ComboBox, Button, CheckBox, TextBox, SelectorBar, settings
   cards, ScrollViewer with smooth wheel scrolling; follows the system light/dark theme and accent colour; Segoe UI via
   FreeType; icons are Microsoft's Fluent UI System Icons, MIT, subset into `app/icons/` by `mkicons.py`),
