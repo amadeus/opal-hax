@@ -1,9 +1,24 @@
-// Opal.exe resources: icon (id 1: window class + tray), manifest, version info
+// Opal.exe resources: icon (id 1: window class + tray), manifest, version info, the install dialog
 #include <winver.h>
 #include <winuser.h>
+#include "resource.h"
 
 1 ICON "opal.ico"
 1 RT_MANIFEST "opal.manifest"
+
+// shown by InstallOpal.exe (installer.cpp offerInstall): where to add shortcuts
+IDD_INSTALL DIALOGEX 0, 0, 262, 112
+STYLE DS_SHELLFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Install Opal"
+FONT 9, "Segoe UI", 400, 0, 1
+BEGIN
+  ICON 1, -1, 12, 12, 21, 20
+  LTEXT "Opal will be installed in Program Files and the ""Opal C1"" camera will be added for your video apps. Windows will ask for permission.", -1, 44, 12, 206, 28
+  AUTOCHECKBOX "Add Opal to the &Start menu", IDC_STARTMENU, 44, 46, 206, 12
+  AUTOCHECKBOX "Add a &desktop shortcut", IDC_DESKTOP, 44, 61, 206, 12
+  DEFPUSHBUTTON "&Install", IDOK, 146, 88, 52, 15
+  PUSHBUTTON "Cancel", IDCANCEL, 202, 88, 52, 15
+END
 
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION 1,0,0,0

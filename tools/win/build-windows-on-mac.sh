@@ -1,6 +1,7 @@
 #!/bin/bash
 # build-windows-on-mac.sh - cross-compile Opal for Windows on this Mac (MinGW-w64) and package it:
-#   On the PC: unzip, run Opal.exe, click OK (it installs itself; no scripts, which antivirus flags as droppers).
+#   On the PC: unzip, run InstallOpal.exe, click Install (the app installs itself as Opal.exe; no scripts, which
+#   antivirus flags as droppers).
 # Prereqs: brew install mingw-w64 ninja cmake; Opal assets in tools/vendor (extract-opal-fw.py, make-template.py,
 # luts/bake-luts.sh); depthai source from build-depthai.sh (tools/vendor/depthai-core-opal, patched).
 # The PC needs nothing but Windows 11: Opal.exe links the GCC runtime statically and only uses system DLLs.
@@ -63,6 +64,8 @@ BAD=$(for f in "$HERE/dist/Opal.exe" "$HERE/dist/OpalVirtualCamera.dll"; do
 OUT="$ROOT/build/Opal-Windows-$(date +%Y%m%d-%H%M).zip"
 mkdir -p "$ROOT/build"
 rm -rf "$V/opal-win-pkg" && mkdir -p "$V/opal-win-pkg" && cp -R "$HERE/dist" "$V/opal-win-pkg/Opal for Windows"
+# in the download the app is the installer (installer.cpp installs it as Opal.exe)
+mv "$V/opal-win-pkg/Opal for Windows/Opal.exe" "$V/opal-win-pkg/Opal for Windows/InstallOpal.exe"
 (cd "$V/opal-win-pkg" && zip -qr "$OUT" "Opal for Windows" -x '*/.DS_Store')
 echo "wrote $OUT ($(du -h "$OUT" | cut -f1))"
 

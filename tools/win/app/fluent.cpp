@@ -570,7 +570,20 @@ bool SelectorBar(const char* id, const char* const items[], int n, int* sel, flo
 
 // ------------------------------------------------------------------ ScrollViewer
 
-static float gGutter = 0;
+static float gGutter = 0, gWheelLines = 3;
+
+// the ImageStrip under the pointer last frame and whether it can still scroll each way: the page's ScrollViewer reads the
+// wheel before the strip is drawn, so it leaves a notched wheel to the strip when the strip would use it
+static struct {
+    ImRect r;
+    bool canLeft = false, canRight = false;
+    int frame = -10;
+} gStrip;
+static bool isPrecise(float wheel) { return std::fabs(wheel) < 0.99f || std::fabs(wheel - std::round(wheel)) > 0.01f; }
+static bool stripTakesWheel(float wheel) {
+    return gStrip.frame >= ImGui::GetFrameCount() - 1 && gStrip.r.Contains(ImGui::GetIO().MousePos) && !isPrecise(wheel) &&
+           (wheel > 0 ? gStrip.canLeft : gStrip.canRight);
+}
 
 void BeginScroll(const char* id, ImVec2 size, float wheelLines) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -583,10 +596,11 @@ void BeginScroll(const char* id, ImVec2 size, float wheelLines) {
     float target = anim ? st->GetFloat(kT, w->Scroll.y) : w->Scroll.y;
     ImGuiIO& io = ImGui::GetIO();
     float maxY = w->ScrollMax.y;
-    if(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && io.MouseWheel != 0 && !ImGui::IsAnyItemActive()) {
+    gWheelLines = std::max(1.f, wheelLines);
+    if(ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && io.MouseWheel != 0 && !ImGui::IsAnyItemActive() && !stripTakesWheel(io.MouseWheel)) {
         float wheel = io.MouseWheel;
         // mouse wheels send whole notches (120 units); precision touchpads send small steps that should move directly
-        bool precise = std::fabs(wheel) < 0.99f || std::fabs(wheel - std::round(wheel)) > 0.01f;
+        bool precise = isPrecise(wheel);
         float step = dp(20) * std::max(1.f, wheelLines);
         target = std::clamp(target - wheel * step, 0.f, maxY);
         if(precise) {
@@ -658,6 +672,146 @@ void EndScroll() {
     gGutter = 0;
 }
 
+// ------------------------------------------------------------------ ImageStrip
+
+// metrics: the selection ring is 2 px wide with a 2 px gap to the image (WinUI's GridViewItem selection border); tiles are
+// 12 apart; the name sits 6 below the image in Caption. No scroll bar: the faded edges and their buttons show there's more.
+static float stripRing() { return dp(4); }
+float ImageStripHeight(ImVec2 imageSize) { return stripRing() + imageSize.y + dp(6) + F.caption->FontSize + dp(2); }
+
+static void chevron(ImDrawList* dl, ImVec2 c, float s, bool left, ImU32 col) {
+    float d = left ? 1.f : -1.f;
+    ImVec2 pts[3] = {ImVec2(c.x + d * s * 0.25f, c.y - s * 0.5f), ImVec2(c.x - d * s * 0.25f, c.y), ImVec2(c.x + d * s * 0.25f, c.y + s * 0.5f)};
+    dl->AddPolyline(pts, 3, col, ImDrawFlags_None, std::max(1.f, dp(1.25f)));
+}
+
+int ImageStrip(const char* id, ImTextureID atlas, int n, const char* const names[], int selected, ImVec2 imageSize, float width, float bleed) {
+    ImGuiWindow* win = ImGui::GetCurrentWindow();
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::PushID(id);
+    ImGuiStorage* st = &win->StateStorage;
+    ImGuiID kS = win->GetID("#s"), kT = win->GetID("#t"), kA = win->GetID("#a"), kInit = win->GetID("#init");
+    const float ring = stripRing(), pitch = imageSize.x + dp(12), rr = dp(4);
+    const float h = ImageStripHeight(imageSize);
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImRect view(ImVec2(p.x - bleed, p.y), ImVec2(p.x + width + bleed, p.y + h));
+    float contentW = n * imageSize.x + (n - 1) * dp(12);
+    float maxS = std::max(0.f, contentW - width);
+
+    float cur = std::clamp(st->GetFloat(kS, 0), 0.f, maxS);
+    float target = std::clamp(st->GetFloat(kT, cur), 0.f, maxS);
+    bool anim = st->GetBool(kA, false);
+    if(!st->GetBool(kInit, false)) {  // first show: the selected tile in view, centred where possible
+        st->SetBool(kInit, true);
+        if(selected >= 0) cur = target = std::clamp(selected * pitch + imageSize.x / 2 - width / 2, 0.f, maxS);
+    }
+    bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseHoveringRect(view.Min, view.Max, false);
+    if(hovered && !ImGui::IsAnyItemActive()) {
+        float step = dp(20) * gWheelLines;
+        // a notched wheel (vertical) scrolls the strip while it can move that way (stripTakesWheel kept the page still);
+        // horizontal wheel / touchpad swipes always; a touchpad's vertical swipe is left to the page
+        float dx = 0;
+        bool smooth = false;
+        if(io.MouseWheel != 0 && !isPrecise(io.MouseWheel) && (io.MouseWheel > 0 ? target > 0.5f : target < maxS - 0.5f))
+            dx -= io.MouseWheel * step, smooth = true;
+        if(io.MouseWheelH != 0) {
+            dx -= io.MouseWheelH * step;
+            smooth = smooth || !isPrecise(io.MouseWheelH);
+        }
+        if(dx != 0) {
+            target = std::clamp(target + dx, 0.f, maxS);
+            if(smooth) anim = true;
+            else cur = target, anim = false;
+        }
+    }
+
+    // edge buttons (shown while the pointer is over the strip and there is more that way): a page minus one tile
+    float* vis = st->GetFloatRef(win->GetID("#vis"), 0);
+    *vis = approach(*vis, hovered ? 1.f : 0.f, 6.f);
+    const float bs = dp(28);
+    float imgMidY = p.y + ring + imageSize.y / 2;
+    ImRect btn[2] = {ImRect(ImVec2(view.Min.x + dp(6), imgMidY - bs / 2), ImVec2(view.Min.x + dp(6) + bs, imgMidY + bs / 2)),
+                     ImRect(ImVec2(view.Max.x - dp(6) - bs, imgMidY - bs / 2), ImVec2(view.Max.x - dp(6), imgMidY + bs / 2))};
+    bool show[2] = {target > 0.5f && *vis > 0, target < maxS - 0.5f && *vis > 0};
+    bool overBtn = false;
+    bool btnHov[2] = {}, btnHeld[2] = {};
+    for(int b = 0; b < 2; b++) {
+        if(!show[b]) continue;
+        ImGuiID bid = win->GetID(b ? "#right" : "#left");
+        ImGui::ItemAdd(btn[b], bid, nullptr, ImGuiItemFlags_NoNav);
+        if(ImGui::ButtonBehavior(btn[b], bid, &btnHov[b], &btnHeld[b])) {
+            float page = std::max(pitch, std::floor(width / pitch) * pitch - pitch);
+            target = std::clamp(target + (b ? page : -page), 0.f, maxS);
+            anim = true;
+        }
+        overBtn = overBtn || btn[b].Contains(io.MousePos);
+    }
+    if(anim) {
+        cur += (target - cur) * (1 - std::exp(-io.DeltaTime * 14.f));
+        if(std::fabs(target - cur) < 0.5f) cur = target, anim = false;
+    }
+    st->SetFloat(kS, cur);
+    st->SetFloat(kT, target);
+    st->SetBool(kA, anim);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImGui::PushClipRect(view.Min, view.Max, true);
+    int clicked = -1;
+    float scroll = std::round(cur);
+    for(int i = 0; i < n; i++) {
+        float x = p.x + i * pitch - scroll;
+        ImRect img(ImVec2(x, p.y + ring), ImVec2(x + imageSize.x, p.y + ring + imageSize.y));
+        ImRect hit(ImVec2(img.Min.x - ring, p.y), ImVec2(img.Max.x + ring, img.Max.y + dp(6) + F.caption->FontSize));
+        if(hit.Max.x < view.Min.x || hit.Min.x > view.Max.x) continue;
+        ImGui::PushID(i);
+        ImGuiID tid = win->GetID("#tile");
+        ImGui::PopID();
+        bool th = false, held = false;
+        ImGui::ItemAdd(hit, tid, nullptr, ImGuiItemFlags_NoNav);
+        if(!overBtn && ImGui::ButtonBehavior(hit, tid, &th, &held)) clicked = i;
+        if(atlas)
+            dl->AddImageRounded(atlas, img.Min, img.Max, ImVec2((float)i / n, 0), ImVec2((float)(i + 1) / n, 1), IM_COL32_WHITE, rr);
+        else
+            dl->AddRectFilled(img.Min, img.Max, gC.previewBg, rr);
+        if(held) dl->AddRectFilled(img.Min, img.Max, gDark ? rgba(0, 0, 0, 0.18f) : rgba(255, 255, 255, 0.18f), rr);
+        else if(th) dl->AddRectFilled(img.Min, img.Max, gDark ? rgba(255, 255, 255, 0.1f) : rgba(255, 255, 255, 0.22f), rr);
+        dl->AddRect(img.Min, img.Max, gDark ? rgba(255, 255, 255, 0.08f) : rgba(0, 0, 0, 0.08f), rr);  // edge on dark/light pictures
+        if(i == selected) {
+            float o = ring - dp(1);  // ring centre line: 2 px gap + half its 2 px width
+            dl->AddRect(ImVec2(img.Min.x - o, img.Min.y - o), ImVec2(img.Max.x + o, img.Max.y + o), held ? gC.accentPressed : gC.accent, rr + o, 0,
+                        dp(2));
+        }
+        const char* name = names ? names[i] : "";
+        ImFont* f = i == selected ? F.captionStrong : F.caption;
+        ImVec2 ts = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0, name);
+        drawText(dl, f, ImVec2(img.Min.x + (imageSize.x - ts.x) / 2, img.Max.y + dp(6)), i == selected ? gC.text : gC.text2, name);
+    }
+    // fades at the edges with more content, over the tiles' area (the card is opaque)
+    float fw = dp(24), y0 = p.y, y1 = p.y + h;
+    ImU32 solid = gC.card, clear = withAlpha(gC.card, 0);
+    if(scroll > 0.5f) dl->AddRectFilledMultiColor(ImVec2(view.Min.x, y0), ImVec2(view.Min.x + fw, y1), solid, clear, clear, solid);
+    if(scroll < maxS - 0.5f) dl->AddRectFilledMultiColor(ImVec2(view.Max.x - fw, y0), ImVec2(view.Max.x, y1), clear, solid, solid, clear);
+    // edge buttons: small flyout-coloured squares with a chevron
+    for(int b = 0; b < 2; b++) {
+        if(!show[b]) continue;
+        float a = ease(*vis);
+        ImU32 fill = btnHeld[b] ? lerpCol(gC.flyout, gDark ? IM_COL32_BLACK : IM_COL32_WHITE, 0.15f)
+                     : btnHov[b] ? lerpCol(gC.flyout, gDark ? IM_COL32_WHITE : IM_COL32_BLACK, 0.06f)
+                                 : gC.flyout;
+        dl->AddRectFilled(btn[b].Min, btn[b].Max, withAlpha(fill, a), rr);
+        dl->AddRect(btn[b].Min, btn[b].Max, withAlpha(gDark ? rgba(0, 0, 0, 0.35f) : rgba(0, 0, 0, 0.1f), a), rr);
+        chevron(dl, btn[b].GetCenter(), dp(9), b == 0, withAlpha(btnHeld[b] ? gC.text2 : gC.text, a));
+    }
+    ImGui::PopClipRect();
+
+    gStrip.r = view;
+    gStrip.canLeft = target > 0.5f;
+    gStrip.canRight = target < maxS - 0.5f;
+    gStrip.frame = ImGui::GetFrameCount();
+    ImGui::PopID();
+    return clicked;
+}
+
 // ------------------------------------------------------------------ cards and rows
 
 static struct {
@@ -703,7 +857,7 @@ void RowBegin(const char* icon, const char* title, const char* desc, ImVec2 cont
     float x0 = gCard.x0, w = gCard.w;
     float y0 = ImGui::GetCursorScreenPos().y;
     float tx = x0 + padX;
-    if(sub) tx = x0 + dp(52);
+    // sub rows (a slider or switch under a card's main row) use the card's full width, from its left padding
     float iconX = tx;
     if(icon && !sub) tx += dp(20) + dp(16);
     float textW = std::max(dp(40), x0 + w - padX - controlSize.x - dp(16) - tx);
@@ -772,7 +926,7 @@ bool SliderRow(const char* icon, const char* title, const char* desc, float* v, 
 
 bool SubSlider(const char* label, float* v, float lo, float hi, const char* fmt, float step, float fmtScale) {
     ImGui::PushID(label);
-    float lx = gCard.x0 + dp(52);
+    float lx = gCard.x0 + dp(16);
     float lw = TextSize(label).x;
     float vw = fmt ? dp(52) : 0;
     float sw = gCard.x0 + gCard.w - dp(16) - (lx + lw + dp(16)) - vw;

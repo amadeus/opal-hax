@@ -7,7 +7,7 @@
 //   bokeh                                                            (CameraPipeline)
 //   Face Lock crop -> Zoom crop -> spotlight -> mirror               (AppearancePipeline)
 //   logo / footer text overlay
-//   look (13 LUTs, blended by strength) -> gesture drawing
+//   look (13 LUTs, blended by strength; + the popover's look thumbnails) -> gesture drawing
 //   -> 1920x1080 -> NV12 (full-range code values, like Opal writes)
 //
 // The person mask for bokeh / touch-up / skin is Opal's SegmenterFilter: two joint-bilateral passes at 256x144.
@@ -44,6 +44,7 @@ struct EffectParams {
     // look
     int look = -1;  // index into looks(); -1 = none
     float lookStrength = 1.f;
+    bool lookThumbs = false;  // also render lookThumbs() (while the popover shows the Looks strip)
     // face for the skin-tone measurement (normalized), from the face detector
     bool hasFace = false;
     Face face{};
@@ -66,6 +67,10 @@ class Effects {
     void reloadSkin() { skinNeedsReload_ = true; }  // Opal re-measures the face's skin colour when skin tone is turned on
 
     ID3D11ShaderResourceView* preview() const { return outSRV_.Get(); }
+    // look thumbnails of the last process() with lookThumbs: one row of kThumbW x kThumbH tiles, tile 0 = no look, then
+    // looks() in order (each at full strength); null when not rendered
+    ID3D11ShaderResourceView* lookThumbs() const { return thumbsReady_ ? thumbs_.srv.Get() : nullptr; }
+    static const int kThumbW = 192, kThumbH = 108;
     // overlays (premultiplied BGRA, output size), drawn with Direct2D: A = logo/text (before the look, like Opal),
     // B = gesture drawing (after the look)
     IDXGISurface* overlaySurface(int which) const;
@@ -94,7 +99,7 @@ class Effects {
     // shaders
     Com<ID3D11ComputeShader> csToRgb_, csTouchOverlay_, csGauss_, csTouchComposite_, csExtractSkin_, csFaceBalance_, csDown2_, csHS_, csPixellate_,
         csResizeGuide_, csSurfaceBlur_, csBokehPre_, csBokehAlpha_, csBokehBC_, csCrop_, csUncrop_, csSpotlight_, csMirror_, csOverlay_, csLook_,
-        csFinal_, csToY_, csToUV_;
+        csThumbDown_, csLookThumb_, csFinal_, csToY_, csToUV_;
     // input
     int inW_ = 0, inH_ = 0;
     Com<ID3D11Texture2D> inY_, inUV_, inM0_, inM1_;
@@ -105,6 +110,8 @@ class Effects {
     Tex guide_, maskA_, mask_;
     // output
     Tex out_, outY_, outUV_, overlay_[2];
+    Tex thumbSmall_, thumbs_;
+    bool thumbsReady_ = false;
     Com<ID3D11ShaderResourceView> outSRV_;
     Com<ID3D11Texture2D> stY_, stUV_;
     Com<ID3D11ShaderResourceView> curveSRV_;

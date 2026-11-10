@@ -75,6 +75,14 @@ bool SubToggle(const char* label, bool* v);
 // card content area with the card's padding (for custom content); returns the width available
 float SubBegin(float height);
 void SubEnd(float height);
+// ImageStrip: one row of picture tiles that scrolls sideways (WinUI GridView items in a horizontal ScrollViewer): a rounded
+// image with its name under it, an accent ring around the selected one. A mouse wheel or a touchpad swipe over it scrolls it
+// (a touchpad's vertical swipe still scrolls the page, and so does the wheel once the strip is at its end); the edges fade
+// and, under the pointer, show a button while there is more to that side. atlas: one texture with the n images side by side (0 = placeholders).
+// The tiles start at the cursor, `width` wide; `bleed` lets them scroll out to that much further on both sides (the card's
+// edge). Doesn't move the cursor: the strip is ImageStripHeight() tall. Returns the clicked tile or -1.
+float ImageStripHeight(ImVec2 imageSize);
+int ImageStrip(const char* id, ImTextureID atlas, int n, const char* const names[], int selected, ImVec2 imageSize, float width, float bleed);
 // plain text helpers
 void Text(const char* s, ImU32 col = 0, ImFont* font = nullptr);
 ImVec2 TextSize(const char* s, ImFont* font = nullptr);

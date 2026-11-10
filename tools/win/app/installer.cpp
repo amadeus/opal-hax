@@ -9,6 +9,8 @@
 #include <cstdio>
 #include <filesystem>
 
+#include "resource.h"
+
 namespace fs = std::filesystem;
 
 namespace opal {
@@ -106,6 +108,39 @@ static std::wstring errText(DWORD e) {
     return s + L" (" + std::to_wstring(e) + L")";
 }
 
+// ---- shortcuts (all users: the install is per machine): Start menu and Public Desktop "Opal.lnk"
+static std::wstring knownFolder(REFKNOWNFOLDERID id) {
+    PWSTR p = nullptr;
+    std::wstring r;
+    if(SUCCEEDED(SHGetKnownFolderPath(id, 0, nullptr, &p))) r = p;
+    CoTaskMemFree(p);
+    return r;
+}
+static std::wstring startMenuLink() { return knownFolder(FOLDERID_CommonPrograms) + L"\\Opal.lnk"; }
+static std::wstring desktopLink() { return knownFolder(FOLDERID_PublicDesktop) + L"\\Opal.lnk"; }
+
+static bool makeShortcut(const std::wstring& link, const std::wstring& exe) {
+    HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    IShellLinkW* sl = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW, (void**)&sl);
+    if(SUCCEEDED(hr)) {
+        sl->SetPath(exe.c_str());
+        sl->SetWorkingDirectory(fs::path(exe).parent_path().c_str());
+        sl->SetDescription(L"Opal C1 webcam: looks, effects and camera settings");
+        sl->SetIconLocation(exe.c_str(), 0);
+        IPersistFile* pf = nullptr;
+        hr = sl->QueryInterface(IID_IPersistFile, (void**)&pf);
+        if(SUCCEEDED(hr)) {
+            hr = pf->Save(link.c_str(), TRUE);
+            pf->Release();
+        }
+        sl->Release();
+    }
+    if(SUCCEEDED(init)) CoUninitialize();
+    if(FAILED(hr)) installLog(L"could not create the shortcut " + link + L": " + errText((DWORD)hr));
+    return SUCCEEDED(hr);
+}
+
 // copy one file over an installed one. A file that is in use (the virtual camera DLL stays loaded in Windows' camera
 // service after a video app used Opal C1; a running Opal.exe) can't be overwritten but can be renamed: move it aside,
 // copy the new one in, and delete the old one at the next restart.
@@ -129,7 +164,7 @@ static bool installFile(const fs::path& src, const fs::path& dst) {
     return false;
 }
 
-static int doInstall(const std::wstring& from) {
+static int doInstall(const std::wstring& from, bool startMenu, bool desktop) {
     DeleteFileW(installLogPath().c_str());
     std::wstring to = installDir();
     installLog(L"installing from " + from + L" to " + to);
@@ -145,6 +180,9 @@ static int doInstall(const std::wstring& from) {
     for(auto it = fs::recursive_directory_iterator(from, ec); it != fs::recursive_directory_iterator(); it.increment(ec)) {
         fs::path rel = fs::relative(it->path(), from, ec);
         fs::path dst = fs::path(to) / rel;
+        // the installer itself (InstallOpal.exe in the download) is the app: installed as Opal.exe
+        std::error_code eq;
+        if(fs::equivalent(it->path(), selfPath(), eq)) dst = fs::path(to) / L"Opal.exe";
         if(it->is_directory(ec)) {
             fs::create_directories(dst, ec);
             continue;
@@ -154,6 +192,12 @@ static int doInstall(const std::wstring& from) {
     }
     if(ec) installLog(L"listing " + from + L" failed: " + std::wstring(ec.message().begin(), ec.message().end()));
     if(!ok || ec) return 2;
+    // shortcuts as chosen (an unticked one is removed, so a reinstall can take it away)
+    std::wstring exe = to + L"\\Opal.exe";
+    if(startMenu) makeShortcut(startMenuLink(), exe);
+    else DeleteFileW(startMenuLink().c_str());
+    if(desktop) makeShortcut(desktopLink(), exe);
+    else DeleteFileW(desktopLink().c_str());
     // the Camera Frame Server service loads this DLL from Program Files
     HRESULT hr = callDllEntry(dll, "DllRegisterServer");
     if(FAILED(hr)) installLog(L"registering the camera failed: " + errText((DWORD)hr));
@@ -165,6 +209,8 @@ static int doUninstall() {
     stopInstalledOpal();
     std::wstring dll = to + L"\\OpalVirtualCamera.dll";
     callDllEntry(dll, "DllUnregisterServer");
+    DeleteFileW(startMenuLink().c_str());
+    DeleteFileW(desktopLink().c_str());
     HKEY k;
     if(RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &k) == ERROR_SUCCESS) {
         RegDeleteValueW(k, L"Opal");
@@ -210,7 +256,12 @@ bool handleInstallerArgs(const wchar_t* cmdLine, int& exitCode) {
     bool handled = false;
     for(int i = 1; i < argc && !handled; i++) {
         if(wcscmp(argv[i], L"--install") == 0 && i + 1 < argc) {
-            exitCode = doInstall(argv[i + 1]);
+            bool startMenu = false, desktop = false;
+            for(int j = 1; j < argc; j++) {
+                if(wcscmp(argv[j], L"--start-menu") == 0) startMenu = true;
+                if(wcscmp(argv[j], L"--desktop") == 0) desktop = true;
+            }
+            exitCode = doInstall(argv[i + 1], startMenu, desktop);
             handled = true;
         } else if(wcscmp(argv[i], L"--usb-fix") == 0 && i + 1 < argc) {
             exitCode = doUsbFix(argv[i + 1]);
@@ -225,15 +276,49 @@ bool handleInstallerArgs(const wchar_t* cmdLine, int& exitCode) {
     return handled;
 }
 
+// the install dialog (opal.rc IDD_INSTALL): both shortcuts ticked on a first install; on a reinstall, the ones that exist
+struct InstallChoice {
+    bool startMenu = true, desktop = true;
+};
+static INT_PTR CALLBACK installDlgProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
+    auto* c = (InstallChoice*)GetWindowLongPtrW(dlg, DWLP_USER);
+    switch(msg) {
+        case WM_INITDIALOG:
+            SetWindowLongPtrW(dlg, DWLP_USER, lp);
+            c = (InstallChoice*)lp;
+            CheckDlgButton(dlg, IDC_STARTMENU, c->startMenu ? BST_CHECKED : BST_UNCHECKED);
+            CheckDlgButton(dlg, IDC_DESKTOP, c->desktop ? BST_CHECKED : BST_UNCHECKED);
+            SendMessageW(dlg, WM_SETICON, ICON_BIG, (LPARAM)LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1)));
+            return TRUE;
+        case WM_COMMAND:
+            if(LOWORD(wp) == IDOK) {
+                c->startMenu = IsDlgButtonChecked(dlg, IDC_STARTMENU) == BST_CHECKED;
+                c->desktop = IsDlgButtonChecked(dlg, IDC_DESKTOP) == BST_CHECKED;
+                EndDialog(dlg, IDOK);
+                return TRUE;
+            }
+            if(LOWORD(wp) == IDCANCEL) {
+                EndDialog(dlg, IDCANCEL);
+                return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
+
 bool offerInstall() {
     if(runningFromInstallDir()) return false;
-    int r = MessageBoxW(nullptr,
-                        L"Install Opal for Windows?\n\nOpal will be installed in Program Files and the \"Opal C1\" camera will be added for "
-                        L"your video apps. Windows will ask for permission.",
-                        L"Opal", MB_OKCANCEL | MB_ICONQUESTION);
-    if(r != IDOK) return true;
+    InstallChoice choice;
+    std::error_code ec;
+    if(fs::exists(installDir() + L"\\Opal.exe", ec)) {
+        choice.startMenu = fs::exists(startMenuLink(), ec);
+        choice.desktop = fs::exists(desktopLink(), ec);
+    }
+    if(DialogBoxParamW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(IDD_INSTALL), nullptr, installDlgProc, (LPARAM)&choice) != IDOK) return true;
     DWORD code = 1;
     std::wstring args = L"--install \"" + selfDir() + L"\"";
+    if(choice.startMenu) args += L" --start-menu";
+    if(choice.desktop) args += L" --desktop";
     if(!runElevated(args, code)) return true;  // admin prompt declined
     if(code != 0) {
         std::wstring msg = code == 3 ? L"Opal was copied, but the Opal C1 camera could not be registered." : L"Installing Opal failed.";

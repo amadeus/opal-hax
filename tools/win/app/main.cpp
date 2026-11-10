@@ -375,6 +375,7 @@ static void processFrame(App& app) {
         for(size_t i = 0; i < app.effects.looks().size(); i++)
             if(app.effects.looks()[i].name == s.filter) p.look = (int)i;
     p.lookStrength = s.filterStrength;
+    p.lookThumbs = app.popoverVisible && app.tab == 0;  // the Camera tab's Looks strip
     p.bokeh = s.bokeh;
     p.bokehRadius = s.bokehRadius;
     p.pixellate = s.pixellate;
@@ -636,6 +637,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdLine, int) {
             // starts again (the status shows instead)
             bool live = app.effects.preview() && app.lastFrameSeq >= 0 && nowSec() - app.lastFrameTime < 0.5;
             host.preview = live ? (ImTextureID)(intptr_t)app.effects.preview() : (ImTextureID)0;
+            host.lookThumbs = live && app.effects.lookThumbs() ? (ImTextureID)(intptr_t)app.effects.lookThumbs() : (ImTextureID)0;
             host.cameraStatus = app.camera ? app.camera->statusText() : "";
             if(!live && host.cameraStatus == "Connected") host.cameraStatus = "Starting the camera";
             host.cameraStreaming = app.camera && app.camera->streaming() && live;

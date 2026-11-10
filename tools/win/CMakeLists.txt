@@ -53,7 +53,7 @@ add_executable(Opal WIN32
   app/main.cpp app/ui.cpp app/fluent.cpp app/effects.cpp app/overlay.cpp app/settings.cpp app/vcam_producer.cpp app/installer.cpp app/opal.rc)
 target_compile_definitions(Opal PRIVATE ${OPAL_WIN_DEFINES})
 target_link_libraries(Opal PRIVATE opalcore imgui d3d11 dxgi d3dcompiler d2d1 dwrite windowscodecs mfplat mfuuid
-  shell32 comdlg32 ole32 oleaut32 advapi32 user32 dwmapi cfgmgr32)
+  shell32 comdlg32 ole32 oleaut32 advapi32 user32 dwmapi cfgmgr32 uuid)
 set_target_properties(Opal PROPERTIES OUTPUT_NAME "Opal")
 if(NOT MSVC)
   # wWinMain entry (MSVC picks it automatically); static GCC runtime so the exe needs no MinGW DLLs

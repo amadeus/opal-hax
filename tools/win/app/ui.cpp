@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "fluent.hpp"
 #include "icons/fluent_icons.h"
@@ -64,24 +65,30 @@ void cameraTab(Ctx& c) {
         RowEnd();
         (void)off;
     } else {
-        if(ToggleRow(ICON_COLOR, "Apply a look", "Colour styles from Opal", &s.filtersOn)) c.changed();
+        // one row of live thumbnails that scrolls sideways (Opal's FilterImageListView): "None", then every look
+        std::vector<const char*> names = {"None"};
+        int sel = 0;
+        for(size_t i = 0; i < c.h.looks.size(); i++) {
+            names.push_back(c.h.looks[i].c_str());
+            if(s.filtersOn && c.h.looks[i] == s.filter) sel = (int)i + 1;
+        }
+        ImVec2 img(dp(96), dp(54));
+        float sh = ImageStripHeight(img);
+        float cw = SubBegin(0);
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + dp(12)));
+        int hit = ImageStrip("looks", c.h.lookThumbs, (int)names.size(), names.data(), sel, img, cw, dp(16));
+        SubEnd(dp(12) + sh + dp(14));
+        if(hit == 0 && s.filtersOn) {
+            s.filtersOn = false;
+            c.changed();
+        } else if(hit > 0 && (!s.filtersOn || s.filter != c.h.looks[hit - 1])) {
+            s.filtersOn = true;
+            s.filter = c.h.looks[hit - 1];
+            c.changed();
+        }
         if(s.filtersOn) {
             RowDivider();
-            float cw = SubBegin(0);
-            int cols = 4, n = (int)c.h.looks.size();
-            float g = dp(6), bw = std::floor((cw - (cols - 1) * g) / cols), bh = dp(32);
-            ImVec2 p0 = ImGui::GetCursorScreenPos();
-            p0.y += dp(12);
-            for(int i = 0; i < n; i++) {
-                ImGui::SetCursorScreenPos(ImVec2(p0.x + (i % cols) * (bw + g), p0.y + (i / cols) * (bh + g)));
-                const std::string& name = c.h.looks[i];
-                if(ToggleButton(name.c_str(), name == s.filter, ImVec2(bw, bh))) {
-                    s.filter = name;
-                    c.changed();
-                }
-            }
-            int rows = (n + cols - 1) / cols;
-            SubEnd(dp(12) + rows * bh + (rows - 1) * g + dp(4));
             if(SubSlider("Strength", &s.filterStrength, 0.f, 1.f, "%.0f%%", 0.01f, 100)) c.changed();
         }
     }

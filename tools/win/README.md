@@ -68,9 +68,12 @@ current lens position) changed: 4K none, 1440p 2/3, 1080p 1/2, 720p 1/3, 360p 1/
 - On the Mac: `tools/win/build-windows-on-mac.sh` cross-compiles everything with MinGW-w64
   (`cmake/mingw-w64-x86_64.cmake`; depthai-core static with Opal's firmware embedded, GCC runtime linked statically, so
   the binaries only use DLLs that ship with Windows) -> `build/Opal-Windows-<date>.zip`.
-- On the PC: unzip, run `Opal.exe`, click OK: it relaunches itself elevated (`--install <dir>`), copies itself to
-  C:\Program Files\Opal, registers the virtual camera DLL (calls its DllRegisterServer) and starts the installed
-  copy. Tray menu "Uninstall Opal..." reverses it (`--uninstall`, run from a temp copy). No PowerShell/.cmd installer:
+- On the PC: unzip, run `InstallOpal.exe` (the app itself, renamed in the zip), tick "Add Opal to the Start menu" /
+  "Add a desktop shortcut" (both on for a first install; a reinstall keeps the existing choice), click Install: it
+  relaunches itself elevated (`--install <dir> [--start-menu] [--desktop]`), copies itself to C:\Program Files\Opal as
+  `Opal.exe`, registers the virtual camera DLL (calls its DllRegisterServer), adds the all-users shortcuts and starts
+  the installed copy. The Start menu / desktop shortcut on a running Opal opens its popover. Tray menu "Uninstall
+  Opal..." reverses it (`--uninstall`, run from a temp copy; removes the shortcuts too). No PowerShell/.cmd installer:
   the first package had one and Chrome/Defender flagged the download as a virus (script with ExecutionPolicy
   Bypass + RunAs = dropper pattern). The exe also carries a manifest and version info for the same reason. The
   binaries are unsigned (no Windows code-signing certificate yet).
@@ -100,7 +103,9 @@ current lens position) changed: 4K none, 1440p 2/3, 1080p 1/2, 720p 1/3, 360p 1/
   overlay, -> NV12 BT.709 video range for Windows apps), `overlay` (Direct2D: text, logo, gesture drawing, peace
   burst), `framing` (zoom, face lock), `gestures` (draw / peace / pinch from hand landmarks by finger geometry;
   Opal uses a random-forest model on the Mac), `vcam_producer`, `ui` (popover: Camera, Effects, Manual, Audio,
-  Settings, footer with status; a status readout over the live preview like the Mac app's statushud: chip °C, camera
+  Settings, footer with status; Looks as a sideways-scrolling strip of live thumbnails like Opal's FilterImageListView:
+  "None" + every look rendered on the current frame by `effects` (192x108 tiles, full strength, only while the Camera tab
+  shows), mouse wheel / touchpad swipe / edge buttons scroll it, `fluent::ImageStrip`; a status readout over the live preview like the Mac app's statushud: chip °C, camera
   CPU CSS/MSS %, received fps + frame height, Opal.exe CPU as % of one core, details on hover; orange ≥ 65 °C, red ≥ 75 °C), `fluent` (Windows 11 / WinUI 3 controls drawn with Dear ImGui to
   WinUI's metrics and colour tokens: ToggleSwitch, Slider, ComboBox, Button, CheckBox, TextBox, SelectorBar, settings
   cards, ScrollViewer with smooth wheel scrolling; follows the system light/dark theme and accent colour; Segoe UI via

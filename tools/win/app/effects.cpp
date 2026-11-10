@@ -305,6 +305,28 @@ void CSLook(uint3 id : SV_DispatchThreadID) {
     l = round(saturate(l) * 255) / 255;
     o0[id.xy] = float4(lerp(c, l, v0.x), 1);
 }
+// ---- look thumbnails (the popover's Looks strip, like Opal's FilterImageListView: every look live on the current frame)
+// CSThumbDown: box-filtered downscale of the frame before the look; v0.x bilinear taps per axis per output pixel
+[numthreads(8, 8, 1)]
+void CSThumbDown(uint3 id : SV_DispatchThreadID) {
+    GUARD
+    int n = (int)v0.x;
+    float4 acc = 0;
+    for (int y = 0; y < n; y++) for (int x = 0; x < n; x++)
+        acc += t0.SampleLevel(linearClamp, (id.xy + (float2(x, y) + 0.5) / n) / size, 0);
+    o0[id.xy] = float4(acc.rgb / (n * n), 1);
+}
+// CSLookThumb: one atlas tile at x offset v0.z; v0.w > 0: through the look (full strength, 8-bit like CSLook), else as is
+[numthreads(8, 8, 1)]
+void CSLookThumb(uint3 id : SV_DispatchThreadID) {
+    GUARD
+    float3 c = t0[id.xy].rgb;
+    if (v0.w > 0) {
+        float n = v0.y;
+        c = round(saturate(lut3.SampleLevel(linearClamp, c * ((n - 1) / n) + 0.5 / n, 0).rgb) * 255) / 255;
+    }
+    o0[id.xy + uint2((uint)v0.z, 0)] = float4(c, 1);
+}
 // ---- frame -> 1920x1080 output (bilinear; a copy when the camera runs at 1080p)
 [numthreads(8, 8, 1)]
 void CSFinal(uint3 id : SV_DispatchThreadID) {
@@ -435,6 +457,8 @@ bool Effects::init(ID3D11Device* dev, ID3D11DeviceContext* ctx, const std::strin
                    {"CSMirror", &csMirror_},
                    {"CSOverlay", &csOverlay_},
                    {"CSLook", &csLook_},
+                   {"CSThumbDown", &csThumbDown_},
+                   {"CSLookThumb", &csLookThumb_},
                    {"CSFinal", &csFinal_},
                    {"CSToY", &csToY_},
                    {"CSToUV", &csToUV_}};
@@ -848,16 +872,35 @@ bool Effects::process(const uint8_t* nv12, int w, int h, const uint8_t* mask, in
         run(csOverlay_.Get(), w, h, {src(), overlay_[0].srv.Get()}, {dst()}, CB());
         flip();
     }
-    if(p.look >= 0 && p.look < (int)looks_.size()) {
+    auto lutSize = [&](int i) {
         Com<ID3D11Resource> r;
-        looks_[p.look].lut->GetResource(&r);
+        looks_[i].lut->GetResource(&r);
         Com<ID3D11Texture3D> t3;
         r.As(&t3);
         D3D11_TEXTURE3D_DESC d;
         t3->GetDesc(&d);
+        return (float)d.Width;
+    };
+    // ---- look thumbnails: the picture as it is here (before the look), small, then once per look. The last set stays
+    // available while they aren't rendered (e.g. back on the Camera tab: no placeholder flash before the next frame).
+    if(p.lookThumbs && !looks_.empty() && makeTex(thumbSmall_, kThumbW, kThumbH, rgba8) &&
+       makeTex(thumbs_, kThumbW * (int)(looks_.size() + 1), kThumbH, rgba8)) {
+        CB c;
+        c.v0[0] = (float)std::clamp((int)std::ceil(std::max((float)w / kThumbW, (float)h / kThumbH) / 2), 1, 12);
+        run(csThumbDown_.Get(), kThumbW, kThumbH, {src()}, {thumbSmall_.uav.Get()}, c);
+        for(int i = 0; i <= (int)looks_.size(); i++) {
+            CB t;
+            t.v0[2] = (float)(i * kThumbW);
+            if(i > 0) t.v0[1] = lutSize(i - 1), t.v0[3] = 1;
+            run(csLookThumb_.Get(), kThumbW, kThumbH, {thumbSmall_.srv.Get(), nullptr, nullptr, nullptr, nullptr, i > 0 ? looks_[i - 1].lut.Get() : nullptr},
+                {thumbs_.uav.Get()}, t);
+        }
+        thumbsReady_ = true;
+    }
+    if(p.look >= 0 && p.look < (int)looks_.size()) {
         CB c;
         c.v0[0] = p.lookStrength;
-        c.v0[1] = (float)d.Width;
+        c.v0[1] = lutSize(p.look);
         run(csLook_.Get(), w, h, {src(), nullptr, nullptr, nullptr, nullptr, looks_[p.look].lut.Get()}, {dst()}, c);
         flip();
     }

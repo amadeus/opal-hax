@@ -27,6 +27,7 @@ Steps
 import argparse
 import os
 import plistlib
+import tempfile
 import re
 import struct
 import shutil
@@ -158,11 +159,14 @@ def original_entitlements(rel_bundle):
     return plistlib.loads(data)
 
 
+ENT_DIR = tempfile.mkdtemp(prefix="opal-entitlements-")
+
+
 def sign(path, entitlements=None):
     cmd = ["codesign", "--force", "--sign", IDENTITY, "--options", "runtime", TIMESTAMP]
     if entitlements:
         ep = path.rstrip("/") + ".entitlements.plist"
-        ep = os.path.join(ROOT, "build", os.path.basename(ep).replace(" ", "_"))
+        ep = os.path.join(ENT_DIR, os.path.basename(ep).replace(" ", "_"))  # scratch: not left in build/
         with open(ep, "wb") as f:
             plistlib.dump(entitlements, f)
         cmd += ["--entitlements", ep]

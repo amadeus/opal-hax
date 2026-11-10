@@ -1,9 +1,10 @@
-// installer: Opal.exe installs and uninstalls itself (no scripts: PowerShell/.cmd installers look like malware
-// droppers to antivirus heuristics).
-//   - run from anywhere but Program Files: asks "Install Opal?", relaunches itself elevated with --install <dir>
-//   - --install <dir>: (elevated) stops the installed Opal, copies <dir> to %ProgramFiles%\Opal, registers the
-//     virtual camera DLL (calls its DllRegisterServer)
-//   - tray menu "Uninstall Opal...": relaunches elevated with --uninstall
+// installer: the app installs and uninstalls itself (no scripts: PowerShell/.cmd installers look like malware
+// droppers to antivirus heuristics). The download ships it as InstallOpal.exe; it is installed as Opal.exe.
+//   - run from anywhere but Program Files: the "Install Opal" dialog (Start menu / desktop shortcut checkboxes), then
+//     relaunches itself elevated with --install <dir> [--start-menu] [--desktop]
+//   - --install <dir>: (elevated) stops the installed Opal, copies <dir> to %ProgramFiles%\Opal (this exe as Opal.exe),
+//     registers the virtual camera DLL (calls its DllRegisterServer), adds/removes the all-users shortcuts
+//   - tray menu "Uninstall Opal...": relaunches elevated with --uninstall (also removes the shortcuts)
 #pragma once
 #include <string>
 

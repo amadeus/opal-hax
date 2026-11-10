@@ -15,6 +15,7 @@ struct UiHost {
     AppSettings* settings = nullptr;
     std::vector<std::string> looks;  // Opal's short look names
     ImTextureID preview = 0;         // live picture (16:9); 0 until the first frame
+    ImTextureID lookThumbs = 0;      // the Looks strip's pictures: 1 + looks.size() tiles side by side (none, then each look)
     std::string cameraStatus;
     std::string vcamError, effectsError;
     bool vcamInUse = false, cameraStreaming = false;
