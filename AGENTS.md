@@ -225,10 +225,19 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   (version, git hash, auto-install toggle, changelog) is hidden at runtime by `tools/opalspy/hidepanels.m`: it points
   UpdatesPanelView's SwiftUI `View` witness table at EmptyView (Body type, Body:View conformance, no-op body getter);
   log line "hidepanels: UpdatesPanelView hidden" in opalspy.log. `DATA_PATCHES` shrinks the Settings page
-  height constant 547 → 444 pt (the 4 remaining panels; gap above Quit then equals the 10 pt between groups).
+  height constant 547 → 444 pt (the 4 remaining panels; gap above Quit then equals the 10 pt between groups). The popover chrome height with a tab open (preview + tabs 344 pt + 45 pt Quit footer) is patched
+  389 → 385.5 pt: the gap below Quit (was 13 pt) is 9.5 pt, 1 px less than above it, which looks even next to the
+  popover's inner border.
   **Audio > Noise cancellation** panel hidden the same way (owner's request; NoiseCancellationPanelView, not a
   persisted setting) and the Audio page's fixed row count patched 3 → 2 (`CODE_PATCHES`, TabManager page height =
   rows × 72 + (rows−1) × 10 pt). TabManager pages: 1 Camera, 2 Audio, 3 Effects, 4 Manual, 5 Settings.
+  **Feedback removed** (owner, 2026-11-09, abandoned app): every tab's "Send Feedback" button (`SendFeedbackButton`, a
+  field-less struct) now acts as Opal's own `QuitButton` (hidepanels copies QuitButton's Body type, Body:View conformance
+  and body getter into SendFeedbackButton's View witness table; log "SendFeedbackButton now acts as QuitButton"); the
+  feedback form `SendFeedbackView` (Sentry "User Feedback" submit), `FeedbackModeHeaderView` and `FeedbackModeFooterView`
+  ("email hello@opalcamera.com") are EmptyView; and a `CODE_PATCHES` entry makes the `Storage.isFeedbackViewVisible`
+  setter always store false, so feedback mode can't open by any path. hidepanels now finds types by name in
+  `__swift5_types`/`__swift5_proto` (no hardcoded addresses).
   **The popover only opens when the menu-bar icon is clicked** (owner, 2026-11-04): `CODE_PATCHES` NOP Opal's own
   calls that open it on camera connect/frames (`showPopover()` from DeviceXPCConnectionHelperService, 5 sites). The
   launch call (`[appDelegate togglePopover:nil]`) can't simply go: it is also Opal's setup (loads the camera view

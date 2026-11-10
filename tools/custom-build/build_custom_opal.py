@@ -93,12 +93,23 @@ CODE_PATCHES = [
     (0x1001cd1e4, "1e60fa97", NOP, "camera connect: showPopover() in DeviceXPCConnectionHelperService+OpalCameraInputDelegate"),
     (0x1001ce91c, "505afa97", NOP, "camera connect: showPopover() in DeviceXPCConnectionHelperService+OpalCameraInputDelegate"),
     (0x1002d7748, "c536f697", NOP, "camera frames: showPopover() in DeviceXPCConnectionHelperService's frame handler"),
+    # Feedback removed (owner, 2026-11-09: the app is abandoned). Feedback mode (SendFeedbackView form that submits a
+    # Sentry "User Feedback" + header + "email hello@opalcamera.com" footer) is shown while Storage.isFeedbackViewVisible
+    # (@Published Bool) is true. Every writer (the Send Feedback buttons, the header's back toggle, the form's
+    # done-sending close, Binding setters) goes through this one setter, so it now always stores false: feedback mode
+    # can't open. The buttons themselves become Quit buttons and the feedback views EmptyView (opalspy hidepanels.m).
+    (0x100324a10, "0800080a", bytes.fromhex("08008052"), "Storage.isFeedbackViewVisible setter: and w8, w0, w8 -> mov w8, #0 (always false)"),
 ]
 # Settings page content height (static Double used by SettingsView and TabManager's popover sizing). The four
 # remaining panels measure 444 pt (96+126+126+66 + 3x10 spacing); 547 included the Updates panel. The Quit footer
 # already starts ~10.7 pt below this area, so 444 leaves the same gap above Quit as between panel groups.
+# Popover chrome height with a tab open (preview + tab bar 344 pt, + the 45 pt Quit footer; used by TabManager's
+# popover size and every tab view's frame). The footer's button sits 10 pt below the divider but 13 pt above the
+# bottom edge (measured on a 2x screenshot, 2026-11-09); 385.5 makes the bottom gap 1 px (0.5 pt) smaller than the top
+# one, which looks even next to the window's inner border (owner's request).
 DATA_PATCHES = [
     (0x100573b50, 547.0, 444.0, "settings page height"),
+    (0x100573b48, 389.0, 385.5, "popover chrome height with a tab open (Quit footer bottom gap 13 -> 9.5 pt)"),
 ]
 TEXT_VMADDR = 0x100000000
 # Camera extension build number. macOS only replaces an installed system extension when its version changes, so
