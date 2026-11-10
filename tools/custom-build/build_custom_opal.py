@@ -111,6 +111,10 @@ CODE_PATCHES = [
 DATA_PATCHES = [
     (0x100573b50, 547.0, 444.0, "settings page height"),
     (0x100573b48, 389.0, 385.5, "popover chrome height with a tab open (Quit footer bottom gap 13 -> 9.5 pt)"),
+    # Looks thumbnails (FilterImageView): Opal asks its video service for 30 fps while the pointer is over a thumbnail and
+    # 1 fps when it leaves (Int statics read by the onHover closure). 30 for both; opalspy filterfps.m starts every look
+    # at 30 too (owner, 2026-11-09: "updates like once per second").
+    (0x100575868, 1, 30, "Looks thumbnail fps when the pointer leaves it (1 -> 30)"),
 ]
 TEXT_VMADDR = 0x100000000
 # Camera extension build number. macOS only replaces an installed system extension when its version changes, so
@@ -243,10 +247,11 @@ def main():
         for va, orig, new, what in DATA_PATCHES:
             seg = [(int(v, 16), int(o)) for n, v, sz, o in segs if int(v, 16) <= va < int(v, 16) + int(sz, 16)][0]
             f.seek(va - seg[0] + seg[1])
-            cur = struct.unpack("<d", f.read(8))[0]
+            fmt = "<q" if isinstance(orig, int) else "<d"  # Swift Int or Double/CGFloat
+            cur = struct.unpack(fmt, f.read(8))[0]
             assert cur == orig, f"unexpected value at {va:#x} ({what}): {cur}"
             f.seek(va - seg[0] + seg[1])
-            f.write(struct.pack("<d", new))
+            f.write(struct.pack(fmt, new))
     shutil.rmtree(os.path.join(OUT, "Contents/XPCServices/OpalCameraUpdateXPC.xpc"))
     print(f"updating removed: {len(CODE_PATCHES)} code patches, OpalCameraUpdateXPC.xpc deleted")
 

@@ -238,6 +238,11 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   ("email hello@opalcamera.com") are EmptyView; and a `CODE_PATCHES` entry makes the `Storage.isFeedbackViewVisible`
   setter always store false, so feedback mode can't open by any path. hidepanels now finds types by name in
   `__swift5_types`/`__swift5_proto` (no hardcoded addresses).
+  **Looks thumbnails play live** (owner, 2026-11-09: they updated once a second): the video service renders each look's
+  thumbnail at a per-look fps the app sets (`adjustFPSOfFilterWithID:andFPS:`): 30 while hovered, 1 otherwise. A
+  `DATA_PATCHES` entry makes the "pointer left" value 30 and opalspy `filterfps.m` asks for 30 for every look as its
+  thumbnails arrive (hooks `-[VideoXPCConnectionHelperService receiveWithSurface:forName:]`, finds the connection by
+  `setRemoteObjectInterface:`); logs measured rates ("filterfps:") every 10 s. Disable: `OPALSPY_NO_FILTER_FPS=1`.
   **The popover only opens when the menu-bar icon is clicked** (owner, 2026-11-04): `CODE_PATCHES` NOP Opal's own
   calls that open it on camera connect/frames (`showPopover()` from DeviceXPCConnectionHelperService, 5 sites). The
   launch call (`[appDelegate togglePopover:nil]`) can't simply go: it is also Opal's setup (loads the camera view
