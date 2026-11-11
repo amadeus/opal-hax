@@ -100,6 +100,16 @@ CODE_PATCHES = [
     # done-sending close, Binding setters) goes through this one setter, so it now always stores false: feedback mode
     # can't open. The buttons themselves become Quit buttons and the feedback views EmptyView (opalspy hidepanels.m).
     (0x100324a10, "0800080a", bytes.fromhex("08008052"), "Storage.isFeedbackViewVisible setter: and w8, w0, w8 -> mov w8, #0 (always false)"),
+    # Look thumbnails (FilterImageView.body): the tile is clipped with .cornerRadius(10) over a .background of the same
+    # RoundedRectangle filled with the label colour (white, the accent yellow when selected, grey with looks off), so the
+    # two anti-aliased curves overlap and the label colour leaks out around the picture (a white fringe, worst on the
+    # dark placeholder). The selected tile hides it with its 1 pt .overlay stroke in the label colour; unselected tiles
+    # stroked with Color.clear. Now they stroke with their own label colour too: the clear branch loads the background
+    # Color built earlier in body ([x19+0x190], still alive inside the background view), retains it (the stroke's copy
+    # is released after the call like Color.clear's was) and stores it; the "b next" it replaces was a no-op.
+    # (A colour matching the card can't hide it: the card is translucent over the popover's material.)
+    (0x10025b40c, "1ba70894604200f901000014", bytes.fromhex("60ca40f947b00894604200f9"),
+     "FilterImageView.body overlay stroke: Color.clear -> swift_retain(background Color)"),
 ]
 # Settings page content height (static Double used by SettingsView and TabManager's popover sizing). The four
 # remaining panels measure 444 pt (96+126+126+66 + 3x10 spacing); 547 included the Updates panel. The Quit footer

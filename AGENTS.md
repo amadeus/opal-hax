@@ -243,6 +243,14 @@ The owner has a paid Apple Developer team **UHD99KF9X7** (identity "Apple Develo
   `DATA_PATCHES` entry makes the "pointer left" value 30 and opalspy `filterfps.m` asks for 30 for every look as its
   thumbnails arrive (hooks `-[VideoXPCConnectionHelperService receiveWithSurface:forName:]`, finds the connection by
   `setRemoteObjectInterface:`); logs measured rates ("filterfps:") every 10 s. Disable: `OPALSPY_NO_FILTER_FPS=1`.
+  **Thumbnail corner fringe fixed** (owner, 2026-11-10: "weird fringing with the rounded corners", plainest on the grey
+  placeholder without video): FilterImageView clips the tile with `.cornerRadius(10)` over a `.background` of the same
+  RoundedRectangle in the label colour, so the label colour leaked through the overlapping anti-aliased curves. Opal's
+  1 pt `.overlay` stroke used the label colour only when selected (Color.clear otherwise); a `CODE_PATCHES` entry makes
+  every tile stroke with its own label colour (white / yellow / grey with looks off), which covers the seam. A colour
+  matching the card can't: the card is translucent over the popover material. The status readout now anchors to
+  Opal's `CameraViewControllerRepresentable` view by name; without a picture the "largest Metal view" rule put it on
+  the first thumbnail.
   **The popover only opens when the menu-bar icon is clicked** (owner, 2026-11-04): `CODE_PATCHES` NOP Opal's own
   calls that open it on camera connect/frames (`showPopover()` from DeviceXPCConnectionHelperService, 5 sites). The
   launch call (`[appDelegate togglePopover:nil]`) can't simply go: it is also Opal's setup (loads the camera view

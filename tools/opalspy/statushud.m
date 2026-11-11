@@ -136,12 +136,17 @@ static BOOL hasMetalLayer(NSView *v) {
     return NO;
 }
 
-// the live preview: the largest view drawing with a CAMetalLayer (Opal's "metal preview layer")
-static NSView *findPreview(NSView *v, NSView *best) {
-    if(v == gHUD) return best;
-    if(hasMetalLayer(v) && v.frame.size.width * v.frame.size.height > best.frame.size.width * best.frame.size.height) best = v;
-    for(NSView *s in v.subviews) best = findPreview(s, best);
-    return best;
+// the live preview: the view of Opal's CameraViewControllerRepresentable. Found by name: its Metal layer only exists
+// while the camera delivers a picture, and the look thumbnails draw with Metal too (without a picture the readout used
+// to land on the first thumbnail)
+static NSView *findPreview(NSView *v) {
+    if(v == gHUD) return nil;
+    if([NSStringFromClass(v.class) containsString:@"CameraViewControllerRepresentable"]) return v;
+    for(NSView *s in v.subviews) {
+        NSView *p = findPreview(s);
+        if(p) return p;
+    }
+    return nil;
 }
 
 static void logTree(NSView *v, int depth, NSMutableString *out) {
@@ -158,7 +163,7 @@ static NSWindow *popoverWindow(void) {
     NSWindow *any = nil;
     for(NSWindow *w in NSApp.windows) {
         if(!w.isVisible || ![NSStringFromClass(w.class) containsString:@"Popover"]) continue;
-        if(findPreview(w.contentView, nil)) return w;
+        if(findPreview(w.contentView)) return w;
         if(!any || w.frame.size.height > any.frame.size.height) any = w;
     }
     return any;
@@ -180,7 +185,7 @@ static void hudTick(void) {
         logTree(root, 0, t);
         opalspy_log(t);
     }
-    NSView *preview = findPreview(root, nil);
+    NSView *preview = findPreview(root);
     NSView *host = preview ? preview.superview : root;
     if(gHUD.superview != host) {
         [gHUD removeFromSuperview];
