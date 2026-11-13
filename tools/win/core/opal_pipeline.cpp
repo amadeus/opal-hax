@@ -127,6 +127,10 @@ dai::Pipeline PipelineTemplate::build(const PipelineOptions& opt) const {
         auto& info = n[1];
         nlohmann::json props = info["properties"];
         std::string name = info["name"];
+        if(name == "AudioMic" && opt.micMuted) {
+            props["initialConfig"]["config"]["micGain"] = 0.0;
+            props["initialConfig"]["config"]["disableOutput"] = true;
+        }
         if(name == "ColorCamera") {
             if(opt.resolution != Resolution::R4K) {
                 static const std::map<Resolution, std::pair<int, int>> scale = {

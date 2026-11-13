@@ -23,6 +23,9 @@ struct PipelineOptions {
     int previewWidth = -1, previewHeight = -1;
     int orientation = -1;  // CameraImageOrientation
     bool noTuningBlob = false;  // experiment: firmware default IMX378 tuning instead of Opal's
+    // microphone muted from the first moment: the mic starts at gain 0 with its output off (the app re-sends the
+    // config after connecting, but the camera boots with the template's +30 dB until then)
+    bool micMuted = false;
 };
 
 class PipelineTemplate {

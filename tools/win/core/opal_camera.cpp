@@ -254,6 +254,7 @@ void OpalCamera::sendStreaming(bool on) {
         framesAfterOff_ = 0;
     }
     streamingApplied_ = on;
+    micGainDirty_ = true;  // the mic output follows the video (see the audio config in the loop)
     if(on) ledResendAt_ = -1;
     log(on ? "sensor on" : "sensor off");
 }
@@ -393,6 +394,7 @@ bool OpalCamera::connectAndRun() {
     opt.resolution = applied_.resolution;
     opt.lensPosition = applied_.lensPosition;
     opt.antiBanding = applied_.antiBanding;
+    opt.micMuted = micMuted_;
     // Opal's template sends every message as one USB transfer (chunk size 0). The app sets its own (Windows: settings)
     opt.xlinkChunkSize = chunkSize_;
     log("xlink chunk size " + std::to_string(chunkSize_.load()));
@@ -556,8 +558,11 @@ bool OpalCamera::connectAndRun() {
         if(micGainDirty_) {
             micGainDirty_ = false;
             auto a = std::make_shared<dai::AudioInConfig>();
-            a->setMicGainTimes(micGain_);
-            a->setDisableOutput(micMuted_);  // what Opal sends for mute (captured: micGain 31.6, disableOutput 1)
+            // Muted = gain 0 AND output off: disableOutput alone does not silence the camera's USB microphone (found on the
+            // Mac 2026-11-12: a mute that only disabled the output still recorded). Unmuted: the output follows the video
+            // like Opal (its stream stop sends disableOutput, its start enables it again).
+            a->setMicGainTimes(micMuted_ ? 0.f : micGain_);
+            a->setDisableOutput(micMuted_ || !streamingApplied_);
             send("audioControl", a);
         }
         if(streamingApplied_) {

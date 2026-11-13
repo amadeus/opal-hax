@@ -105,6 +105,36 @@ If the user says the camera hung or crashed, go straight to **Hang playbook** be
   "lo" 29/28 % sessions in telemetry.log are this). Now whenever the debounce applies an off, opalcore also sends
   STOP_STREAM itself through Opal's control queue (`[debounce] explicit STOP_STREAM sent`); verified: fresh connect →
   idle 6 % / 0 % within 30 s. Opal's own quit does not stop the sensor either (teardown resets the camera instead).
+- **That "idle" was still half awake — FIXED (2026-11-12, opalcore "full off path")**: Opal's off path
+  (`-[OpalCameraInput changeStreamingState:withState:]`, skipped entirely when its cached state already equals the
+  request) is STOP_STREAM **plus** microphone output off (`AudioControlQueueManager setEnabled:NO` → AudioInConfig
+  disableOutput), LED option 1 and the preview config queue paused. After a connect the cache says "off", so only our
+  bare STOP went out and the mic pipeline kept streaming: CSS 6 % / MSS 0 %, chip 43–46 °C for 23 h (2026-11-11 23:24 →
+  11-12 22:25). One popover open/close ran Opal's real off path: CSS 3 % / MSS 1 %, 45.6 → 36.3 °C in 10 min, still
+  falling (~33–35 °C on earlier evenings in that state). Now a cached "off" is flipped to "on" just before an off is
+  applied, so Opal always runs the whole path (`[debounce] Opal's cached state was already off …`). Disable: env
+  `OPALCORE_NO_FULL_OFF`. Consequence (Opal's own design): the camera mic is muted while no video is streaming.
+- **Mute guard (2026-11-12, opalcore section 10)**: Opal's Mute toggle (main app → XPC `mute` →
+  `-[AudioControlQueueManager mute]`) sends AudioInConfig `setMicGainTimes(0)`, but every stream start AND stop sends
+  `setEnabled:` = AudioInConfig with Opal's default gain constant (+ `disableOutput` when off), which silently replaces the
+  mute. `disableOutput` does NOT silence the camera's USB microphone: a first version that muted via `setEnabled:NO` let the
+  owner's mic record while muted. Now, while muted, every audio config Opal sends is replaced by one with gain ×0 AND
+  output disabled (Opal's own `dai::AudioInConfig` from libdepthai-core via asm-label externs, sent with Opal's
+  `sendAudioControl:`). Unmute passes through. The mute state comes from the app (it re-sends mute ~3 s after connect).
+  The mic hardware/processing still runs while muted (no firmware knob found that stops it). Log `[mic] …`; disable env
+  `OPALCORE_NO_MUTE_GUARD`.
+- **Deep sleep (2026-11-12, opalcore section 9, OFF by default)**: the owner tried it as the default and went back to
+  light sleep: every wake is a full firmware + pipeline upload (~38 MB: 25 MB firmware, 12.7 MB networks/tuning/scripts),
+  5–8 s, just like plugging the camera in, because the reset wipes the camera's RAM. Opt in with the file
+  `~/Library/Logs/opal-watch/deepsleep` (`after=<s>` default 1 s after the applied off, `mode=bootloader|standalone`). After an applied off +
+  `after` s with no virtual-camera client, opalcore calls Opal's own `-[OpalCameraInput stop]` (the screen-lock path:
+  camera thread exits → teardown → device closed and rebooted), then holds the camera in its bootloader (f63c) with an
+  open `dai::DeviceBootloader` (no flashing; placement-new in 16 KB in case Opal's class is larger than our headers).
+  Any "on" wakes it: bootloader released, `-[OpalCameraInput restart]` + `start` (screen-unlock path). After every connect
+  with Opal's cache "off", an off is routed through the debounce (a fresh camera streams by default). Back-to-back
+  teardown→connect took 4.4–7.9 s historically (resolution switches), so expect ~5–8 s from wake to picture. Log
+  `[sleep] …` incl. wake duration and the chip temperature on arrival (the only reading of the sleeping temperature:
+  the bootloader has no temperature RPC).
 - **Host-boot gotcha (2026-11-06)**: a camera host-booted in UVC mode (BoardConfig.uvcEnable) by our public-lib tools
   is left in its bootloader, and the next UVC-mode boot from that state (or any repeat in a series) crashes the firmware
   1.4 s after start (the old MSS trap); booting from the flashed program (f63d, what a vendor UVC reset of Opal's f63b
@@ -371,7 +401,9 @@ conversions), in Opal's order at the camera resolution with 8-bit intermediates,
 UI (2026-11-02, owner: "doesn't feel windows native"): rebuilt as Windows 11 Settings-style cards (`app/fluent.cpp`, WinUI
 metrics/colours/accent/light-dark, smooth scrolling), screenshot on the Mac with `tools/win/preview/preview.sh`. Tray: with
 NOTIFYICON_VERSION_4 a left click sends WM_LBUTTONUP and NIN_SELECT; toggling on both made the popover flash shut. Mic
-mute added (Opal's `AudioInConfig.disableOutput`).
+mute added (Opal's `AudioInConfig.disableOutput`); 2026-11-12: mute = gain 0 + disableOutput (disableOutput alone
+does not silence the USB mic, see the Mac mute guard), the pipeline starts muted when mute is saved, and the mic output is
+off while the video is off (like Opal).
 Observed 2026-11-02 on the PC: with Opal quit, the flashed f63d program restarted ~1 s after every boot (F63C 6 s -> F63D
 1 s -> gone, looping). Disabling the f63d's WinUSB function (MI_00 "S_BULKDATA", pnputil /disable-device) stopped it;
 the same program host-booted by `tools/win/webcamtest` (OpalWebcamTest.exe, RAM only) ran fine for 40 s. After a PC
