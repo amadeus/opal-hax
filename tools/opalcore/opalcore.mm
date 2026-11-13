@@ -13,7 +13,8 @@
 //  6. fpsfix.mm: camera controls one command per message -> 30 fps instead of 26.4 at 1080p.
 //  7. Explicit STOP_STREAM whenever an "off" is applied (Opal skips it after a reconnect; idle camera kept streaming).
 //  8. ... and Opal's complete off path (mic output off, LED, preview queue) after a reconnect too (idle 46 -> ~34 °C).
-//  9. Deep sleep (opt-in experiment).  10. Mute guard: stream start/stop no longer un-mute the camera mic.
+//  9. Deep sleep (opt-in experiment).  11. Stuck-stream guard (camera on, popover closed, no CMIO client for 30 s -> off).
+//   10. Mute guard: stream start/stop no longer un-mute the camera mic.
 #import <Foundation/Foundation.h>
 #import <objc/message.h>
 #import <objc/runtime.h>
@@ -516,6 +517,46 @@ static void hook_audioDefaultGain(id self, SEL _cmd) {
     ((void(*)(id, SEL))gOrigAudioDefaultGain)(self, _cmd);
 }
 
+// ---------------------------------------------------------------- 11. stuck-stream guard (2026-11-13)
+// Seen 2026-11-13: during a call the camera kept dropping off USB (a flapping hub on the dock); each time Chrome switched
+// to another camera WITHOUT the Opal virtual camera's stream ever getting stopStream, and after the last switch the
+// extension kept believing a client was streaming. Opal's app then kept the camera on (CamEx: true) for the rest of the
+// call and after it, sensor and light on with nobody watching. Guard: if Opal has the camera on, the popover is closed
+// (opalspy popoverstate.m publishes it as the Darwin notification state "com.amadeus.oc.popover-open") and CoreMediaIO
+// says no process is running the "Opal C1" camera (kCMIODevicePropertyDeviceIsRunningSomewhere; verified 2026-11-13 with
+// Photo Booth: 1 while used, 0 after) for 30 s in a row, an off is routed through the debounce (Opal's full off path).
+// A real client starting again brings a normal "on". Disable: env OPALCORE_NO_STUCK_GUARD.
+#include <notify.h>
+
+static void startStuckGuard(void) {
+    if(getenv("OPALCORE_NO_STUCK_GUARD")) return;
+    std::thread([] {
+        int token = -1;
+        notify_register_check("com.amadeus.oc.popover-open", &token);
+        int idleSecs = 0;
+        const int step = 5, limit = 30;
+        while(true) {
+            std::this_thread::sleep_for(std::chrono::seconds(step));
+            id input = gInput;
+            if(!input || !gChangeSel || gSleepState != 0) { idleSecs = 0; continue; }
+            NSInteger st = ((NSInteger(*)(id, SEL))objc_msgSend)(input, NSSelectorFromString(@"streamingState"));
+            uint64_t popover = 0;
+            if(token >= 0) notify_get_state(token, &popover);
+            int inUse = opal_virtualcam_in_use();
+            if(st == kStateOff || st == 0 || popover || inUse != 0) { idleSecs = 0; continue; }
+            idleSecs += step;
+            if(idleSecs < limit) continue;
+            idleSecs = 0;
+            __block NSData *camState;
+            dispatch_sync(gDQ, ^{ camState = gLastCamState; });
+            if(!camState) continue;
+            clog(@"[guard] camera on for %d s with the popover closed and no app using Opal C1 (stream left open, e.g. after a "
+                 @"camera switch) -> turning it off", limit);
+            hook_changeStreaming(input, gChangeSel, kStateOff, camState.bytes);
+        }
+    }).detach();
+}
+
 // ---------------------------------------------------------------- install
 static IMP swap(NSString *cls, NSString *sel, IMP repl) {
     Method m = class_getInstanceMethod(NSClassFromString(cls), NSSelectorFromString(sel));
@@ -547,6 +588,7 @@ __attribute__((constructor)) static void opalcore_init(void) {
         gOrigConnect = swap(@"DeviceManager", @"connectWithInitialState:andLowPowerMode:andResolution:andImxCustomImageTuningPath:", (IMP)hook_connect);
         gOrigStop = swap(@"DeviceManager", @"stopWithLowPowerMode:", (IMP)hook_stop);
     }
+    startStuckGuard();
     if(!getenv("OPALCORE_NO_MUTE_GUARD")) {
         gOrigAudioSetEnabled = swap(@"AudioControlQueueManager", @"setEnabled:", (IMP)hook_audioSetEnabled);
         if(gOrigAudioSetEnabled) {

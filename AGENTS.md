@@ -135,6 +135,21 @@ If the user says the camera hung or crashed, go straight to **Hang playbook** be
   teardown→connect took 4.4–7.9 s historically (resolution switches), so expect ~5–8 s from wake to picture. Log
   `[sleep] …` incl. wake duration and the chip temperature on arrival (the only reading of the sleeping temperature:
   the bootloader has no temperature RPC).
+- **Call with repeated drops 2026-11-13 09:07–09:54 = a flapping USB hub on the dock, not the camera**: an unpowered
+  4-port hub (USB3 side 0bda:0411, "4-Port USB 3.0 Hub") between the owner's mic and a passive USB switch on TS5 Plus
+  USB 3 Hub - C (loc 0x2014xxxx) attached/detached ~500 times; 10 of the 11 camera drops in the call ("terminateDevice …
+  hardware connection lost" at 01220000) came within ±1 s of a hub removal, although the camera is on a different
+  controller (bus 01 vs the dock's ASMedia bus 20), so it is electrical/dock-level. Camera healthy (~60 °C, no firmware
+  errors); Opal reconnected each time in 5–12 s. Fixed by the owner removing the hub (mic → switch → TS5 now): no USB
+  events since. "Wouldn't turn off" after that call = Chrome (Meet) kept the Opal C1 stream open (startStream without
+  stopStream), so Opal correctly kept the sensor on. **Check the daily log for other devices flapping before blaming the
+  camera.** Correction from the macOS log (com.apple.cameracapture): at each drop Chrome switched to the Studio Display XDR
+  camera by itself; the owner re-selected Opal by hand (09:07, 09:08, 09:21), gave up after 09:24. Every switch away
+  during a drop left the Opal extension WITHOUT stopStream (next re-select: startStream with no stop between), so after
+  09:24 Opal kept the camera on with nobody using it. **Stuck-stream guard** (opalcore section 11 + opalspy
+  popoverstate.m, 2026-11-13): camera on + popover closed (Darwin notify state `com.amadeus.oc.popover-open`) + CMIO
+  `DeviceIsRunningSomewhere` = 0 for 30 s → off through the debounce; log `[guard] …`; disable `OPALCORE_NO_STUCK_GUARD`.
+  The CMIO flag was verified live with Photo Booth (1 while used, 0 after); the guard itself is untested.
 - **Host-boot gotcha (2026-11-06)**: a camera host-booted in UVC mode (BoardConfig.uvcEnable) by our public-lib tools
   is left in its bootloader, and the next UVC-mode boot from that state (or any repeat in a series) crashes the firmware
   1.4 s after start (the old MSS trap); booting from the flashed program (f63d, what a vendor UVC reset of Opal's f63b

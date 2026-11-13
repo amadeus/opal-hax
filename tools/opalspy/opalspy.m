@@ -95,6 +95,7 @@ void opal_statushud_install(void);
 void opal_firmwareoffer_install(void);
 void opal_extguide_install(void);
 void opal_filterfps_install(void);
+void opal_popoverstate_install(void);
 
 void opalspy_log(NSString *msg) {
     static dispatch_queue_t q;
@@ -127,6 +128,7 @@ __attribute__((constructor)) static void opalspy_init(void) {
     if(customBuild) opal_launchsetup_install();
     if(customBuild) opal_statushud_install();
     if(customBuild) opal_filterfps_install();
+    if(customBuild) dispatch_async(dispatch_get_main_queue(), ^{ opal_popoverstate_install(); });
     if(customBuild) dispatch_async(dispatch_get_main_queue(), ^{ opal_firmwareoffer_install(); opal_extguide_install(); });
     NSString *dir = [@"~/Library/Logs/opal-watch" stringByExpandingTildeInPath];
     [NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:nil];
